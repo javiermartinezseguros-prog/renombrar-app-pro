@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  transition: font-size 0.15s ease;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* High Contrast Mode */
+html.high-contrast body {
+  filter: contrast(115%);
+}
+
+html.dark.high-contrast {
+  background-color: #000000 !important;
+}
+
+html.dark.high-contrast .bg-slate-900,
+html.dark.high-contrast .bg-slate-950,
+html.dark.high-contrast .dark\:bg-slate-900,
+html.dark.high-contrast .dark\:bg-slate-950 {
+  background-color: #05070a !important;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
+}

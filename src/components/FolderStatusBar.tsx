@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderInput, FolderOutput, Settings, ArrowRight, Zap, Loader2 } from 'lucide-react';
+import { FolderInput, FolderOutput, Settings, ArrowRight, Loader2, Radar, Square } from 'lucide-react';
 import { FolderConfig } from '../types';
 
 interface FolderStatusBarProps {
@@ -9,6 +9,8 @@ interface FolderStatusBarProps {
   pendingCount: number;
   onScanAndProcessFolder?: () => void;
   isScanning?: boolean;
+  /** True while a persistent watch on the origin folder is active (desktop app only). */
+  isWatching?: boolean;
 }
 
 export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
@@ -18,6 +20,7 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
   pendingCount,
   onScanAndProcessFolder,
   isScanning = false,
+  isWatching = false,
 }) => {
   return (
     <div
@@ -58,23 +61,44 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
 
         {/* Right: Quick actions & Stats */}
         <div className="flex flex-wrap items-center gap-2.5 self-end md:self-auto shrink-0 font-sans">
-          {/* Quick Auto Scan Origin -> Destination Button */}
+          {/* Quick Auto Scan Origin -> Destination Button — toggles a live
+              folder watch instead of a one-shot scan: once active, any PDF
+              dropped into the origin folder gets processed automatically. */}
           {onScanAndProcessFolder && (
             <button
               id="btn-scan-and-process-folder"
               onClick={onScanAndProcessFolder}
               disabled={isScanning}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-2xs transition-colors"
-              title="Seleccionar la carpeta de origen para leer todos los PDFs y guardarlos renombrados automáticamente en la carpeta de destino"
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold disabled:opacity-50 shadow-2xs transition-colors ${
+                isWatching
+                  ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
+              title={
+                isWatching
+                  ? 'El escaneo automático está activo — tocá para detenerlo'
+                  : 'Deja la carpeta de origen escuchando: cada PDF que aparezca ahí se procesa y guarda solo, sin volver a tocar este botón'
+              }
             >
               {isScanning ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Procesando...</span>
                 </>
+              ) : isWatching ? (
+                <>
+                  <Square className="w-3.5 h-3.5" />
+                  <span className="relative flex items-center gap-1.5">
+                    <span className="relative flex w-2 h-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white/80"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                    </span>
+                    Escaneo Automático Activo
+                  </span>
+                </>
               ) : (
                 <>
-                  <Zap className="w-3.5 h-3.5 text-amber-300" />
+                  <Radar className="w-3.5 h-3.5 text-amber-300" />
                   <span>Auto-Procesar Carpeta Origen</span>
                 </>
               )}

@@ -20,7 +20,16 @@ import {
 import { SAMPLE_POLICIES } from './data/samplePolicies';
 import { generateStandardFileName, formatPolicyNumber, formatEndorsementNumber } from './utils/naming';
 import { extractPolicyData } from './utils/policyExtractor';
-import { isElectron, saveFileToDestination, showInFolder, readFolderPdfs } from './utils/electronBridge';
+import {
+  isElectron,
+  saveFileToDestination,
+  showInFolder,
+  startFolderWatch,
+  stopFolderWatch,
+  onFolderWatchNewFile,
+  onFolderWatchError,
+  FolderPdfFile,
+} from './utils/electronBridge';
 
 const STORAGE_KEY_POLICIES = 'polizamaster_history_v1';
 const STORAGE_KEY_FOLDERS = 'polizamaster_folder_config_v1';
@@ -93,6 +102,12 @@ export function App() {
     total: number;
     currentFileName?: string;
   }>({ current: 0, total: 0 });
+
+  // Whether the origin folder is currently being watched live (desktop app
+  // only) — "Auto-Procesar Carpeta Origen" toggles this instead of doing a
+  // one-shot scan, so new PDFs dropped in later get picked up automatically
+  // without the user clicking anything again.
+  const [isWatchingFolder, setIsWatchingFolder] = useState(false);
 
   // Save to localStorage
   useEffect(() => {
@@ -344,20 +359,67 @@ export function App() {
     }
   };
 
-  // Automated Scanning from Origin Folder -> Writing to Destination Folder.
-  //
-  // Desktop app: uses the real, already-configured folderConfig paths
-  // directly via Electron IPC — no folder picker at all. Previously this
-  // ALWAYS opened a browser `showDirectoryPicker()` for both folders on
-  // every single run (ignoring the paths already set in "Rutas Carpetas"),
-  // which could only ever recover a folder's *name* — not its real path —
-  // and then overwrote folderConfig with a fabricated "C:\Seguros\{name}"
-  // that pointed nowhere real. That's why this looked like it "didn't
-  // auto-scan anything" and kept re-asking for folders every session, and
-  // why a later manual correction could end up saved under that fake path
-  // instead of the destination folder the user actually configured.
-  const handleScanAndProcessFolder = async () => {
+  // Handles a single new file reported by the live folder watch — same
+  // extraction/rename/auto-save pipeline as drag-and-drop, run one file at a
+  // time as they trickle in (rather than the whole-batch progress bar, which
+  // is for an upfront pile of files, not files arriving over time).
+  const handleWatchedFile = async (file: FolderPdfFile) => {
+    try {
+      const res = await fetch(file.dataUrl);
+      const blob = await res.blob();
+      const fileObj = new File([blob], file.name, { type: 'application/pdf' });
+      const [result] = await processFilesConcurrent([fileObj], 1);
+      setPolicies((prev) => [result, ...prev]);
+      addToast(
+        'success',
+        'Nuevo Documento Detectado y Procesado',
+        result.savedToDisk ? `Guardado en destino: ${result.finalFileName}` : result.finalFileName
+      );
+    } catch (e: any) {
+      addToast('error', 'Error al procesar archivo detectado', `${file.name}: ${e.message}`);
+    }
+  };
+
+  // While the watch is active, subscribe to new-file/error events from the
+  // main-process filesystem watcher (see main.cjs). Re-subscribes whenever
+  // folderConfig/apiKey change so handleWatchedFile's closure (via
+  // processFilesConcurrent) always sees current values.
+  useEffect(() => {
+    if (!isWatchingFolder) return;
+    const unsubscribeFile = onFolderWatchNewFile(handleWatchedFile);
+    const unsubscribeError = onFolderWatchError((message) => {
+      addToast('error', 'Error en el escaneo automático', message);
+    });
+    return () => {
+      unsubscribeFile();
+      unsubscribeError();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWatchingFolder, folderConfig, apiKey]);
+
+  // Toggles a persistent watch on the origin folder (desktop app only):
+  // every PDF already there when it starts, plus every one dropped in
+  // afterward, gets processed automatically — no more re-clicking the
+  // button for each new batch of files. Previously this was a one-shot
+  // scan that ALSO used to always open a browser `showDirectoryPicker()`
+  // ignoring the paths already set in "Rutas Carpetas" (which could only
+  // ever recover a folder's *name*, not its real path, and overwrote
+  // folderConfig with a fabricated "C:\Seguros\{name}" pointing nowhere
+  // real) — that's fixed too: the desktop path below uses the real
+  // configured paths directly via Electron IPC, no picker at all.
+  const handleToggleFolderWatch = async () => {
     if (isElectron()) {
+      if (isWatchingFolder) {
+        await stopFolderWatch();
+        setIsWatchingFolder(false);
+        addToast(
+          'info',
+          'Escaneo Automático Detenido',
+          'Ya no se procesan nuevos archivos de la carpeta de origen automáticamente.'
+        );
+        return;
+      }
+
       if (!folderConfig.originPath || !folderConfig.destinationPath) {
         addToast(
           'error',
@@ -368,58 +430,21 @@ export function App() {
         return;
       }
 
-      setIsProcessing(true);
-      setProcessingProgress({ current: 0, total: 0 });
-
-      try {
-        const readResult = await readFolderPdfs(folderConfig.originPath);
-        if (!readResult.success || !readResult.files) {
-          setIsProcessing(false);
-          addToast(
-            'error',
-            'No se pudo leer la carpeta de origen',
-            readResult.error || `Verificá que "${folderConfig.originPath}" sea una ruta válida.`
-          );
-          return;
-        }
-
-        if (readResult.files.length === 0) {
-          setIsProcessing(false);
-          addToast('info', 'Carpeta sin PDFs', `No se encontraron archivos .pdf en "${folderConfig.originPath}".`);
-          return;
-        }
-
-        // Rebuild real File objects from the bytes read on disk so the rest
-        // of the pipeline (processFilesConcurrent) doesn't need a separate
-        // code path — it already knows how to auto-save to
-        // folderConfig.destinationPath for every file it processes.
-        const files = await Promise.all(
-          readResult.files.map(async (f) => {
-            const res = await fetch(f.dataUrl);
-            const blob = await res.blob();
-            return new File([blob], f.name, { type: 'application/pdf' });
-          })
-        );
-
-        setProcessingProgress({ current: 0, total: files.length });
-        const processedResults = await processFilesConcurrent(files, 4);
-
-        setPolicies((prev) => [...processedResults, ...prev]);
-        setIsProcessing(false);
-
-        const savedCount = processedResults.filter((p) => p.savedToDisk).length;
+      const result = await startFolderWatch(folderConfig.originPath);
+      if (!result.success) {
         addToast(
-          'success',
-          '¡Carpeta Procesada!',
-          savedCount === processedResults.length
-            ? `Se procesaron y guardaron ${savedCount} documento(s) desde "${folderConfig.originPath}" en "${folderConfig.destinationPath}".`
-            : `Se procesaron ${processedResults.length} documento(s); ${savedCount} se guardaron en la carpeta de destino y el resto quedó disponible para descargar manualmente.`
+          'error',
+          'No se pudo iniciar el escaneo automático',
+          result.error || `Verificá que "${folderConfig.originPath}" sea una ruta válida.`
         );
-      } catch (e: any) {
-        setIsProcessing(false);
-        console.error('Error in handleScanAndProcessFolder (Electron):', e);
-        addToast('error', 'Error al escanear carpeta', e.message);
+        return;
       }
+      setIsWatchingFolder(true);
+      addToast(
+        'success',
+        '¡Escaneo Automático Activado!',
+        `Todo lo que aparezca en "${folderConfig.originPath}" se procesa y guarda solo en "${folderConfig.destinationPath}". Tocá el botón de nuevo para detenerlo.`
+      );
       return;
     }
 
@@ -747,8 +772,9 @@ Generado automáticamente por PólizaMaster Desktop
         onOpenConfig={() => setIsFolderConfigOpen(true)}
         processedCount={policies.filter((p) => p.status === 'Completado').length}
         pendingCount={policies.filter((p) => p.status === 'Revisión Requerida').length}
-        onScanAndProcessFolder={handleScanAndProcessFolder}
+        onScanAndProcessFolder={handleToggleFolderWatch}
         isScanning={isProcessing}
+        isWatching={isWatchingFolder}
       />
 
       {/* 3. Main Workspace Container */}

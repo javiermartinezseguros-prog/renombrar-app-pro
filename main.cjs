@@ -2,6 +2,7 @@ const { app, BrowserWindow, globalShortcut, ipcMain, dialog, shell } = require('
 const path = require('path');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
+const chokidar = require('chokidar');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -154,6 +155,69 @@ ipcMain.handle('show-in-folder', (event, filePath) => {
   return { success: false, error: 'El archivo ya no existe en esa ubicación.' };
 });
 
+// ---- Persistent folder watch ----
+// "Auto-Procesar Carpeta Origen" used to be a one-shot scan: it read
+// whatever PDFs were already sitting in the folder once, then did nothing
+// else — so a file dropped in five minutes later just sat there until the
+// user clicked the button again. This keeps a live filesystem watch open on
+// the origin folder instead: every PDF already there when the watch starts
+// AND every one that shows up afterward fires the same 'folder-watch-new-file'
+// event to the renderer, which runs it through the normal extraction/rename/
+// save pipeline. Only one watch is kept at a time (starting a new one closes
+// whatever was running before).
+let activeFolderWatcher = null;
+
+ipcMain.handle('start-folder-watch', (event, folderPath) => {
+  try {
+    if (!folderPath || !fs.existsSync(folderPath)) {
+      throw new Error(`La carpeta de origen no existe: ${folderPath}`);
+    }
+    if (activeFolderWatcher) {
+      activeFolderWatcher.close();
+      activeFolderWatcher = null;
+    }
+
+    const sender = event.sender;
+    activeFolderWatcher = chokidar.watch(folderPath, {
+      ignoreInitial: false,
+      depth: 0,
+      // Waits for a file to stop growing before firing 'add' — avoids
+      // reading a PDF that's still mid-download/mid-copy into the folder.
+      awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 },
+    });
+
+    activeFolderWatcher.on('add', (filePath) => {
+      if (!filePath.toLowerCase().endsWith('.pdf')) return;
+      try {
+        const buffer = fs.readFileSync(filePath);
+        sender.send('folder-watch-new-file', {
+          name: path.basename(filePath),
+          size: buffer.length,
+          dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
+        });
+      } catch (err) {
+        console.error('[FolderWatch] Error leyendo archivo nuevo:', err);
+      }
+    });
+    activeFolderWatcher.on('error', (err) => {
+      console.error('[FolderWatch] Error:', err);
+      sender.send('folder-watch-error', err.message || String(err));
+    });
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('stop-folder-watch', () => {
+  if (activeFolderWatcher) {
+    activeFolderWatcher.close();
+    activeFolderWatcher = null;
+  }
+  return { success: true };
+});
+
 // ---- Auto-update ----
 // Checks the GitHub Releases feed configured in package.json's
 // "build.publish" on every launch. If a newer version is published there,
@@ -184,6 +248,10 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  if (activeFolderWatcher) {
+    activeFolderWatcher.close();
+    activeFolderWatcher = null;
+  }
   if (process.platform !== 'darwin') {
     app.quit();
   }

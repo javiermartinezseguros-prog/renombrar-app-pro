@@ -14,4 +14,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('save-file-to-folder', folderPath, fileName, dataUrl, oldFileName),
   showInFolder: (filePath) => ipcRenderer.invoke('show-in-folder', filePath),
   readFolderPdfs: (folderPath) => ipcRenderer.invoke('read-folder-pdfs', folderPath),
+  startFolderWatch: (folderPath) => ipcRenderer.invoke('start-folder-watch', folderPath),
+  stopFolderWatch: () => ipcRenderer.invoke('stop-folder-watch'),
+  onFolderWatchNewFile: (callback) => {
+    const listener = (event, file) => callback(file);
+    ipcRenderer.on('folder-watch-new-file', listener);
+    return () => ipcRenderer.removeListener('folder-watch-new-file', listener);
+  },
+  onFolderWatchError: (callback) => {
+    const listener = (event, message) => callback(message);
+    ipcRenderer.on('folder-watch-error', listener);
+    return () => ipcRenderer.removeListener('folder-watch-error', listener);
+  },
 });

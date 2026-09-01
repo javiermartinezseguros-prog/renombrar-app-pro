@@ -34,6 +34,10 @@ interface ElectronAPI {
   ) => Promise<SaveFileResult>;
   showInFolder: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   readFolderPdfs: (folderPath: string) => Promise<ReadFolderResult>;
+  startFolderWatch: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+  stopFolderWatch: () => Promise<{ success: boolean }>;
+  onFolderWatchNewFile: (callback: (file: FolderPdfFile) => void) => () => void;
+  onFolderWatchError: (callback: (message: string) => void) => () => void;
 }
 
 declare global {
@@ -85,4 +89,35 @@ export async function readFolderPdfs(folderPath: string): Promise<ReadFolderResu
     return { success: false, error: 'Disponible solo en la app de escritorio.' };
   }
   return window.electronAPI.readFolderPdfs(folderPath);
+}
+
+/**
+ * Starts a persistent watch on the origin folder: every PDF already there
+ * plus every one that shows up afterward fires `onNewFile` — this is what
+ * makes "Auto-Procesar Carpeta Origen" a standing watch instead of a
+ * one-shot read. Only one watch runs at a time; starting a new one replaces
+ * whatever was running.
+ */
+export async function startFolderWatch(folderPath: string): Promise<{ success: boolean; error?: string }> {
+  if (!window.electronAPI) {
+    return { success: false, error: 'Disponible solo en la app de escritorio.' };
+  }
+  return window.electronAPI.startFolderWatch(folderPath);
+}
+
+/** Stops the active folder watch, if any (desktop app only). */
+export async function stopFolderWatch(): Promise<void> {
+  await window.electronAPI?.stopFolderWatch();
+}
+
+/** Subscribes to new-file events from the active folder watch. Returns an unsubscribe function. */
+export function onFolderWatchNewFile(callback: (file: FolderPdfFile) => void): () => void {
+  if (!window.electronAPI) return () => {};
+  return window.electronAPI.onFolderWatchNewFile(callback);
+}
+
+/** Subscribes to error events from the active folder watch. Returns an unsubscribe function. */
+export function onFolderWatchError(callback: (message: string) => void): () => void {
+  if (!window.electronAPI) return () => {};
+  return window.electronAPI.onFolderWatchError(callback);
 }

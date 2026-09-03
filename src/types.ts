@@ -56,6 +56,15 @@ export interface FolderConfig {
   destinationPath: string;
   autoProcessOnDrop: boolean;
   createSubfoldersByCompany: boolean;
+  // Whether the persistent origin-folder watch should be (re)started
+  // automatically when the app launches — without this, "Auto-Procesar
+  // Carpeta Origen" turned back off every time the app was closed and
+  // reopened, so any PDF that arrived while it was closed (or before the
+  // user got around to clicking the button again) just sat there
+  // unprocessed. Confirmed real complaint: looked like specific companies'
+  // files "don't get picked up automatically" when it was really just a
+  // timing/restart issue, not anything about those files themselves.
+  autoScanEnabled?: boolean;
 }
 
 export type ThemeMode = 'system' | 'dark' | 'light' | 'high-contrast';

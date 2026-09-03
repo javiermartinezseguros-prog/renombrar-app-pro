@@ -123,6 +123,36 @@ export function App() {
     } catch (e) {}
   }, [folderConfig]);
 
+  // Resumes the origin-folder watch on launch if it was left on before the
+  // app was last closed — without this, the watch always started OFF on
+  // every launch, so any PDF that showed up while the app was closed (or
+  // before the user got around to re-clicking the button) just sat there.
+  // Confirmed real complaint that looked like specific companies' files
+  // "don't get picked up automatically", when it was really a restart/
+  // timing gap that could affect any company depending on when its files
+  // happen to arrive relative to the app being open. Runs once on mount.
+  useEffect(() => {
+    if (!isElectron() || !folderConfig.autoScanEnabled) return;
+    if (!folderConfig.originPath || !folderConfig.destinationPath) return;
+    startFolderWatch(folderConfig.originPath).then((result) => {
+      if (result.success) {
+        setIsWatchingFolder(true);
+        addToast(
+          'info',
+          'Escaneo Automático Reanudado',
+          `Sigue activo sobre "${folderConfig.originPath}" desde que abriste la app.`
+        );
+      } else {
+        addToast(
+          'error',
+          'No se pudo reanudar el escaneo automático',
+          result.error || `Verificá que "${folderConfig.originPath}" sea una ruta válida.`
+        );
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_THEME, theme);
@@ -427,6 +457,7 @@ export function App() {
       if (isWatchingFolder) {
         await stopFolderWatch();
         setIsWatchingFolder(false);
+        setFolderConfig((prev) => ({ ...prev, autoScanEnabled: false }));
         addToast(
           'info',
           'Escaneo Automático Detenido',
@@ -455,10 +486,11 @@ export function App() {
         return;
       }
       setIsWatchingFolder(true);
+      setFolderConfig((prev) => ({ ...prev, autoScanEnabled: true }));
       addToast(
         'success',
         '¡Escaneo Automático Activado!',
-        `Todo lo que aparezca en "${folderConfig.originPath}" se procesa y guarda solo en "${folderConfig.destinationPath}". Tocá el botón de nuevo para detenerlo.`
+        `Todo lo que aparezca en "${folderConfig.originPath}" se procesa y guarda solo en "${folderConfig.destinationPath}". Va a seguir activo aunque cierres y vuelvas a abrir la app.`
       );
       return;
     }

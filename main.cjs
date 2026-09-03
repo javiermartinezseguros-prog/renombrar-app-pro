@@ -191,8 +191,15 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
       awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 },
     });
 
-    const handleFile = (filePath) => {
-      if (!filePath.toLowerCase().endsWith('.pdf')) return;
+    // Confirmed real gap: a read failure here used to only go to
+    // console.error, which nobody sees in the packaged app (no visible
+    // console) — a file that failed for any reason (locked by antivirus,
+    // still-open handle, permissions) just silently never appeared, with no
+    // way to tell "not picked up yet" apart from "picked up and failed".
+    // One retry after a short delay absorbs a transient lock on its own;
+    // if it still fails, the renderer now gets an explicit error toast
+    // naming the file instead of nothing happening at all.
+    const readAndSend = (filePath, isRetry) => {
       try {
         const buffer = fs.readFileSync(filePath);
         sender.send('folder-watch-new-file', {
@@ -202,8 +209,20 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
           dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
         });
       } catch (err) {
+        if (!isRetry) {
+          setTimeout(() => readAndSend(filePath, true), 2000);
+          return;
+        }
         console.error('[FolderWatch] Error leyendo archivo:', err);
+        sender.send(
+          'folder-watch-error',
+          `No se pudo leer "${path.basename(filePath)}": ${err.message || err}. Puede estar bloqueado por otro programa (antivirus, otra app) o dañado.`
+        );
       }
+    };
+    const handleFile = (filePath) => {
+      if (!filePath.toLowerCase().endsWith('.pdf')) return;
+      readAndSend(filePath, false);
     };
     activeFolderWatcher.on('add', handleFile);
     // Also react to a file being overwritten under the same name (e.g. a

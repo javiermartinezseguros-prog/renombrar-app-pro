@@ -37,14 +37,67 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // whole hyphenated string).
     endorsementLabels: ['endoso'],
     customExtract: (text: string) => {
+      const result: Record<string, string> = {};
       const normalized = text.replace(/\s+/g, ' ');
-      const match = normalized.match(/n[°º]\s*p[oó]liza[^\d]{0,30}(\d[\d-]{5,20}\d)/i);
-      if (!match) return {};
-      const segments = match[1].split('-').filter(Boolean);
-      const numeroPoliza = segments.length > 1 ? segments[segments.length - 1] : segments[0];
-      return { numeroPoliza };
+
+      const labeled = normalized.match(/n[°º]\s*p[oó]liza[^\d]{0,30}(\d[\d-]{5,20}\d)/i);
+      // Fallback for their "Tarjeta de Circulación" layout, whose header row
+      // is just a bare "PÓLIZA" (no "N°"/"Nº" prefix at all) — confirmed
+      // real case where the labeled regex above never matches anything.
+      // Their hyphenated sucursal-ramo-inciso-correlativo ID format is
+      // distinctive enough (hardly ever coincidental) to trust wherever it
+      // appears when the labeled form comes up empty.
+      const bareMatch = !labeled
+        ? normalized.match(/\b(\d{2}-\d{2}-\d{2}-\d{6,10}(?:-\d{1,3})?)\b/)
+        : null;
+      const match = labeled || bareMatch;
+      if (match) {
+        const segments = match[1].split('-').filter(Boolean);
+        // The real policy correlativo isn't reliably the *last* segment —
+        // confirmed real case: "01-05-01-32699055-1" has a trailing vehicle/
+        // item sequence number after it. It IS reliably the *longest*
+        // segment (the sucursal/ramo/inciso prefixes are always 2 digits,
+        // any trailing sequence suffix is 1-3 digits, the correlativo itself
+        // is always much longer).
+        result.numeroPoliza = segments.reduce((longest, s) => (s.length > longest.length ? s : longest), segments[0]);
+      }
+
+      // Their "Tarjeta de Circulación" also prints the insured's name right
+      // after that same hyphenated ID on one line ("01-05-01-32699055-1
+      // VILLAN MARIA CELESTE La posesión de este comprobante..."), with no
+      // real "Asegurado:" label anywhere nearby for the generic engine to
+      // anchor on — the word "ASEGURADO" only appears earlier, as a bare
+      // column header. Captures the all-caps run right after the ID, up to
+      // the first mixed-case word (the boilerplate sentence that follows).
+      const nameMatch = normalized.match(
+        /\d{2}-\d{2}-\d{2}-\d{6,10}(?:-\d{1,3})?\s+([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ\s]{3,50}?)\s+[A-Z][a-z]/
+      );
+      if (nameMatch) {
+        result.asegurado = nameMatch[1].trim();
+      } else {
+        // Their bilingual Mercosur certificate has the opposite problem:
+        // its header line literally spells out "ASEGURADO: NOMBRE/DIRECCION/
+        // ... SEGURADO: NOMBRE/ENDERECO" as column-label text — the generic
+        // engine's bare "asegurado" search grabs the word "NOMBRE" straight
+        // out of that label, mistaking it for a real value. The actual name
+        // is on the line right after, paired with the same policy ID.
+        const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+        const headerIdx = lines.findIndex((l) => /asegurado:\s*nombre/i.test(l));
+        if (headerIdx !== -1 && lines[headerIdx + 1]) {
+          const valueMatch = lines[headerIdx + 1].match(/^([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ,.\s]{3,60}?)\s+\d[\d-]{5,20}\d/);
+          if (valueMatch) {
+            result.asegurado = valueMatch[1].trim();
+          }
+        }
+      }
+
+      return result;
     },
-    notes: 'REAL: Frente de Póliza + Anexo de Adherentes. "N° PÓLIZA" se imprime completo (sucursal-ramo-inciso-correlativo) pero el usuario solo usa el último tramo como número de póliza.',
+    notes:
+      'REAL: Frente de Póliza + Anexo de Adherentes usa "N° PÓLIZA" completo (sucursal-ramo-inciso-correlativo), ' +
+      'solo se usa el último tramo largo como número de póliza. También confirmado real: "Tarjeta de Circulación" ' +
+      '(header "PÓLIZA SOCIO ASEGURADO" sin "N°", nombre pegado al ID) y certificado Mercosur bilingüe (el header ' +
+      'literalmente dice "NOMBRE" como texto de columna) — ver customExtract para ambos.',
   },
   {
     id: 'mercantil-andina',
@@ -250,8 +303,29 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     defaultRubro: 'Automotor',
     // Confirmed real fields on their tarjeta de circulación: "Asegurado:",
     // "Vehiculo:", "Patente:", "Póliza Nro." (format "03 - 01102551"),
-    // "Vigencia desde X al Y".
-    notes: 'REAL: Tarjeta de Circulación / RC verificada.',
+    // "Vigencia desde X al Y". Their "Liquidación de Premio / Frente de
+    // Póliza" layout is a different real format: a "SECCIÓN PÓLIZA Nº
+    // ENDOSO Nº VIGENCIA" table header, whose value row sits several lines
+    // below it with an unrelated "FC N°: {invoice number}" line interposed
+    // in between — the generic 60-char-window search after the header label
+    // grabs that invoice number instead, since it's the first number it
+    // finds. Confirmed real, unambiguous fallback: this layout always
+    // restates the real numbers plainly further down as "PÓLIZA: 1708892 /
+    // 0" (policy / endoso), which is what this pulls from directly instead
+    // of trusting the generic header-search for this field on this layout.
+    customExtract: (text: string) => {
+      const result: Record<string, string> = {};
+      const match = text.match(/p[oó]liza:\s*(\d+)\s*\/\s*(\d+)/i);
+      if (match) {
+        result.numeroPoliza = match[1];
+        result.numeroEndoso = match[2];
+      }
+      return result;
+    },
+    notes:
+      'REAL: Tarjeta de Circulación / RC verificada. También confirmado real: Liquidación de Premio / ' +
+      'Frente de Póliza, donde "PÓLIZA Nº" en el encabezado de tabla no sirve por un renglón de factura ' +
+      'interpuesto — se usa la restitución "PÓLIZA: NNN / NN" más abajo (ver customExtract).',
   },
 
   {

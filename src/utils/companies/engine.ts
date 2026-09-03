@@ -222,6 +222,28 @@ function findAfterLabel(
 export function detectDocumentType(text: string, fileName: string, numeroEndoso?: string): DocumentType {
   const combined = `${fileName} ${text}`.toLowerCase();
 
+  // Mercosur RC-card checks run BEFORE the generic Cobertura check below —
+  // these certificates almost always ALSO print a bare "CERTIFICADO N°"
+  // column somewhere (confirmed real: San Cristóbal's bilingual Mercosur
+  // cert has "POLIZA N° / APOLICE N° CERTIFICADO N°" as a column header),
+  // which would otherwise satisfy the weaker, more generic "certificado
+  // n[°º]" Cobertura signal below and never even reach this check. The
+  // opening legal boilerplate sentence ("responsabilidad civil de[l]
+  // propietario y/o conductor de vehículos de paseo...") is a far stronger,
+  // more specific signal — confirmed identical (word-for-word, same
+  // Mercosur legal template) across San Cristóbal, Mercantil Andina,
+  // Intégrity and Federación Patronal's real certificates, so this
+  // generalizes across insurers instead of needing a fresh per-company
+  // keyword patch each time a new one turns up. "certificado de mercosur"
+  // and "seguro obligatorio del automotor" are additional confirmed-real
+  // phrasings from the same template family.
+  if (
+    /(responsabilidad civil del?\s*propietario\s*y\/?o?\s*conductor|tarjeta de circulaci[oó]n|tarjeta de rc|tarjeta mercosur|certificado de mercosur|seguro obligatorio (?:del\s+)?autom[oó]tor)/.test(
+      combined
+    )
+  ) {
+    return 'Tarjeta de RC';
+  }
   // NOTE: "Cláusula de No Repetición" was removed as a signal here — confirmed
   // it's boilerplate present in nearly every Accidentes Personales document
   // (endosos and suplementos included), not something specific to Cobertura.
@@ -229,18 +251,6 @@ export function detectDocumentType(text: string, fileName: string, numeroEndoso?
   // documents as Cobertura just because they mention that standard clause.
   if (/(constancia de cobertura|certificado de cobertura|certificado n[°º])/.test(combined)) {
     return 'Cobertura';
-  }
-  // "certificado de mercosur" and "seguro obligatorio del automotor" are the
-  // same Mercosur RC-card boilerplate template used by more than one company
-  // (confirmed on both Mercantil Andina's and Federación Patronal's real
-  // certificates) — the "del" was missing from the automotor phrase, which
-  // silently failed to match Federación Patronal's exact wording.
-  if (
-    /(tarjeta de circulaci[oó]n|tarjeta de rc|tarjeta mercosur|certificado de mercosur|seguro obligatorio (?:del\s+)?autom[oó]tor)/.test(
-      combined
-    )
-  ) {
-    return 'Tarjeta de RC';
   }
   // NOTE: "plan de pago", "pagomiscuentas" AND "código de link pagos" were
   // all removed — confirmed too broad, one after another. Mercantil Andina
@@ -327,9 +337,18 @@ export function extractGenericFields(
   const premioTotal = extractPremium(text);
 
   const asegurado = aseguradoRaw ? trimAtNextLabel(aseguradoRaw).toUpperCase() : undefined;
-  const rubro = rubroRaw
-    ? trimAtNextLabel(rubroRaw.replace(/\s*\(.*\)\s*$/, ''))
-    : def?.defaultRubro;
+  // Confirmed real bug (ATM Seguros): when the "Sección"/"Ramo" label sits
+  // immediately next to another field's own label (here, "SECCIÓN PÓLIZA
+  // Nº..." — a 4-column table header), trimAtNextLabel correctly cuts the
+  // captured value down to nothing, but the ternary below used to treat
+  // "rubroRaw was non-empty" as reason enough to skip def?.defaultRubro
+  // entirely — so a company's known default rubro (e.g. ATM's "Automotor")
+  // was silently thrown away in favor of an empty string instead of being
+  // used as the fallback it's meant to be. Falling back on the *trimmed*
+  // result being empty, not on whether a raw (pre-trim) match existed,
+  // fixes this without weakening real values elsewhere.
+  const trimmedRubro = rubroRaw ? trimAtNextLabel(rubroRaw.replace(/\s*\(.*\)\s*$/, '')) : '';
+  const rubro = trimmedRubro || def?.defaultRubro;
 
   return {
     compania: def?.displayName,

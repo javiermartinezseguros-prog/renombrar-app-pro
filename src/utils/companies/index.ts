@@ -1,6 +1,6 @@
 import { CompanyDefinition, RuleExtractionResult } from './types';
 import { COMPANY_DEFINITIONS } from './definitions';
-import { extractGenericFields } from './engine';
+import { extractGenericFields, detectDocumentType } from './engine';
 
 export type { CompanyDefinition, RuleExtractionResult };
 export { COMPANY_DEFINITIONS };
@@ -42,6 +42,17 @@ export function extractPolicyFromText(
   // found something more specific than the bare "Póliza" default.
   if (custom.tipoDocumento && generic.tipoDocumento && generic.tipoDocumento !== 'Póliza') {
     merged.tipoDocumento = generic.tipoDocumento;
+  } else if (!custom.tipoDocumento && custom.numeroEndoso !== undefined && custom.numeroEndoso !== generic.numeroEndoso) {
+    // A company's customExtract corrected the endorsement number the
+    // generic engine got wrong — confirmed real case (ATM Seguros): its
+    // "PÓLIZA Nº" table header sits far from its real value, so the generic
+    // pass grabbed an unrelated invoice number as if it were a non-zero
+    // endoso and classified the document as "Endoso" on that basis, before
+    // customExtract had a chance to correct it back down to the real "0".
+    // Since generic's classification already ran using the wrong number,
+    // it has to be recomputed here with the corrected one — otherwise the
+    // stale "Endoso" guess survives even after the number itself is fixed.
+    merged.tipoDocumento = detectDocumentType(text, fileName, merged.numeroEndoso);
   }
 
   // Judged on the final merged result (see the note in engine.ts) — never

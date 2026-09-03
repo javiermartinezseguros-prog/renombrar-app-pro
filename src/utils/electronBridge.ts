@@ -15,6 +15,8 @@ export interface FolderPdfFile {
   name: string;
   size: number;
   dataUrl: string;
+  /** Full absolute path on disk — present for files reported by the live folder watch. */
+  path?: string;
 }
 
 export interface ReadFolderResult {
@@ -36,6 +38,7 @@ interface ElectronAPI {
   readFolderPdfs: (folderPath: string) => Promise<ReadFolderResult>;
   startFolderWatch: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
   stopFolderWatch: () => Promise<{ success: boolean }>;
+  deleteOriginFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   onFolderWatchNewFile: (callback: (file: FolderPdfFile) => void) => () => void;
   onFolderWatchError: (callback: (message: string) => void) => () => void;
 }
@@ -120,4 +123,17 @@ export function onFolderWatchNewFile(callback: (file: FolderPdfFile) => void): (
 export function onFolderWatchError(callback: (message: string) => void): () => void {
   if (!window.electronAPI) return () => {};
   return window.electronAPI.onFolderWatchError(callback);
+}
+
+/**
+ * Removes a file from the origin folder — used once a file the watch picked
+ * up has been safely saved to the destination folder, so processed PDFs
+ * don't pile up in the origin folder forever. Only call this after
+ * confirming the destination save succeeded.
+ */
+export async function deleteOriginFile(filePath: string): Promise<{ success: boolean; error?: string }> {
+  if (!window.electronAPI) {
+    return { success: false, error: 'Disponible solo en la app de escritorio.' };
+  }
+  return window.electronAPI.deleteOriginFile(filePath);
 }

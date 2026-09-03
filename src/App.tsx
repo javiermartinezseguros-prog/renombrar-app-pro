@@ -28,6 +28,7 @@ import {
   stopFolderWatch,
   onFolderWatchNewFile,
   onFolderWatchError,
+  deleteOriginFile,
   FolderPdfFile,
 } from './utils/electronBridge';
 
@@ -370,6 +371,20 @@ export function App() {
       const fileObj = new File([blob], file.name, { type: 'application/pdf' });
       const [result] = await processFilesConcurrent([fileObj], 1);
       setPolicies((prev) => [result, ...prev]);
+
+      // Once the renamed copy is safely sitting in the destination folder,
+      // remove the original from the origin folder — confirmed real
+      // request: otherwise every processed PDF just piles up there forever.
+      // Only ever done after a *confirmed* successful save (never
+      // speculatively), and only for files that came from the watch itself
+      // (file.path is only set for those).
+      if (result.savedToDisk && file.path) {
+        const deleteResult = await deleteOriginFile(file.path);
+        if (!deleteResult.success) {
+          console.warn(`No se pudo borrar el archivo de origen "${file.name}":`, deleteResult.error);
+        }
+      }
+
       addToast(
         'success',
         'Nuevo Documento Detectado y Procesado',

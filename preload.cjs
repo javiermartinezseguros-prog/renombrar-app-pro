@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFolderPdfs: (folderPath) => ipcRenderer.invoke('read-folder-pdfs', folderPath),
   startFolderWatch: (folderPath) => ipcRenderer.invoke('start-folder-watch', folderPath),
   stopFolderWatch: () => ipcRenderer.invoke('stop-folder-watch'),
+  deleteOriginFile: (filePath) => ipcRenderer.invoke('delete-origin-file', filePath),
   onFolderWatchNewFile: (callback) => {
     const listener = (event, file) => callback(file);
     ipcRenderer.on('folder-watch-new-file', listener);

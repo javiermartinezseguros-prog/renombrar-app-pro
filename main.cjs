@@ -181,24 +181,33 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
     activeFolderWatcher = chokidar.watch(folderPath, {
       ignoreInitial: false,
       depth: 0,
-      // Waits for a file to stop growing before firing 'add' — avoids
-      // reading a PDF that's still mid-download/mid-copy into the folder.
+      // Waits for a file to stop growing before firing 'add'/'change' —
+      // avoids reading a PDF that's still mid-download/mid-copy into the
+      // folder.
       awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 },
     });
 
-    activeFolderWatcher.on('add', (filePath) => {
+    const handleFile = (filePath) => {
       if (!filePath.toLowerCase().endsWith('.pdf')) return;
       try {
         const buffer = fs.readFileSync(filePath);
         sender.send('folder-watch-new-file', {
           name: path.basename(filePath),
+          path: filePath,
           size: buffer.length,
           dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
         });
       } catch (err) {
-        console.error('[FolderWatch] Error leyendo archivo nuevo:', err);
+        console.error('[FolderWatch] Error leyendo archivo:', err);
       }
-    });
+    };
+    activeFolderWatcher.on('add', handleFile);
+    // Also react to a file being overwritten under the same name (e.g. a
+    // corrected document re-saved without deleting the old copy first) —
+    // confirmed real complaint that some files "don't get picked up
+    // automatically": chokidar only fires 'add' the first time a given path
+    // is seen, so a same-name overwrite afterward was silently ignored.
+    activeFolderWatcher.on('change', handleFile);
     activeFolderWatcher.on('error', (err) => {
       console.error('[FolderWatch] Error:', err);
       sender.send('folder-watch-error', err.message || String(err));
@@ -216,6 +225,23 @@ ipcMain.handle('stop-folder-watch', () => {
     activeFolderWatcher = null;
   }
   return { success: true };
+});
+
+// Removes a file from the origin folder once it's been safely processed and
+// saved to the destination folder — confirmed real request: without this,
+// every already-handled PDF just piles up in the origin folder forever.
+// Only ever called by the renderer *after* a successful destination save
+// (see App.tsx's handleWatchedFile), never speculatively.
+ipcMain.handle('delete-origin-file', (event, filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.rmSync(filePath, { force: true });
+      return { success: true };
+    }
+    return { success: false, error: 'El archivo ya no existe en la carpeta de origen.' };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
 });
 
 // ---- Auto-update ----

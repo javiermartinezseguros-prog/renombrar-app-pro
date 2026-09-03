@@ -180,10 +180,14 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
     const sender = event.sender;
     activeFolderWatcher = chokidar.watch(folderPath, {
       ignoreInitial: false,
-      depth: 0,
-      // Waits for a file to stop growing before firing 'add'/'change' —
-      // avoids reading a PDF that's still mid-download/mid-copy into the
-      // folder.
+      // No depth limit (was `depth: 0`, top-level only) — confirmed real
+      // complaint: some companies' PDFs "don't get picked up automatically"
+      // while others do, which is exactly what happens when those files
+      // land in a subfolder of the configured origin folder instead of
+      // directly in it (a `depth: 0` watch is blind to anything below the
+      // top level). Watching the whole subtree means it no longer matters
+      // how the user (or however the PDFs get saved there) organizes things
+      // inside the origin folder.
       awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 },
     });
 

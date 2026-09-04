@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Header } from './components/Header';
 import { FolderStatusBar } from './components/FolderStatusBar';
@@ -251,14 +251,24 @@ export function App() {
           const extracted = result.data || {};
 
           const docType = (extracted.tipoDocumento || 'Póliza') as DocumentType;
-          const paddedPolicy = formatPolicyNumber(extracted.numeroPoliza || file.name);
+          // Confirmed real bug: falling back to `file.name` here (instead of
+          // just letting formatPolicyNumber's own '000000000' placeholder
+          // apply) baked the original filename's digits/letters into the
+          // saved/renamed file whenever extraction found no policy number —
+          // a fabricated-looking policy number that didn't match what the
+          // UI showed for the same record (numeroPoliza below correctly
+          // fell back to the literal placeholder). Passing through
+          // undefined lets formatPolicyNumber apply its own real fallback
+          // consistently in both places.
+          const paddedPolicy = formatPolicyNumber(extracted.numeroPoliza);
           const paddedEndorsement = formatEndorsementNumber(extracted.numeroEndoso || '00');
           const standardName = generateStandardFileName(paddedPolicy, paddedEndorsement, docType);
 
           const isLowConfidence =
             extracted.confianza === 'Baja' ||
             !extracted.asegurado ||
-            extracted.asegurado === 'Asegurado por Identificar';
+            extracted.asegurado === 'Asegurado por Identificar' ||
+            !extracted.numeroPoliza;
 
           const newRecord: ExtractedPolicyData = {
             id: `file-${Date.now()}-${currentIndex}-${Math.random().toString(36).substring(2, 7)}`,
@@ -394,6 +404,29 @@ export function App() {
   // extraction/rename/auto-save pipeline as drag-and-drop, run one file at a
   // time as they trickle in (rather than the whole-batch progress bar, which
   // is for an upfront pile of files, not files arriving over time).
+  // Caps how many files the folder watch will extract at once — confirmed
+  // real bug: each 'folder-watch-new-file' event used to call
+  // processFilesConcurrent independently with no queue shared across calls,
+  // unlike the drag-and-drop batch path (which caps at 4 workers). Left
+  // unthrottled, a folder with 100+ pre-existing PDFs firing 'add' all at
+  // once on watch start/resume would launch 100+ concurrent PDF.js/OCR/
+  // Gemini calls simultaneously.
+  const WATCH_CONCURRENCY = 4;
+  const watchQueueRef = useRef<{ running: number; waiters: (() => void)[] }>({ running: 0, waiters: [] });
+  const runWithWatchLimit = async (task: () => Promise<void>) => {
+    if (watchQueueRef.current.running >= WATCH_CONCURRENCY) {
+      await new Promise<void>((resolve) => watchQueueRef.current.waiters.push(resolve));
+    }
+    watchQueueRef.current.running++;
+    try {
+      await task();
+    } finally {
+      watchQueueRef.current.running--;
+      const next = watchQueueRef.current.waiters.shift();
+      if (next) next();
+    }
+  };
+
   const handleWatchedFile = async (file: FolderPdfFile) => {
     try {
       const res = await fetch(file.dataUrl);
@@ -425,13 +458,23 @@ export function App() {
     }
   };
 
-  // While the watch is active, subscribe to new-file/error events from the
-  // main-process filesystem watcher (see main.cjs). Re-subscribes whenever
-  // folderConfig/apiKey change so handleWatchedFile's closure (via
+  // Subscribes to new-file/error events from the main-process filesystem
+  // watcher (see main.cjs) UNCONDITIONALLY (not gated on isWatchingFolder) —
+  // confirmed real race otherwise: start-folder-watch resolves and only
+  // THEN does a downstream effect (keyed on isWatchingFolder) attach this
+  // listener, but chokidar's initial scan for pre-existing files can emit
+  // 'add' events before that later effect ever runs, and Electron does not
+  // queue/replay IPC sends for a listener that attaches after they fired —
+  // those files were silently dropped. Subscribing here, on mount, well
+  // before the watch can possibly start (whether via the toggle button or
+  // the launch-resume effect below), closes that gap entirely. Re-subscribes
+  // whenever folderConfig/apiKey change so handleWatchedFile's closure (via
   // processFilesConcurrent) always sees current values.
   useEffect(() => {
-    if (!isWatchingFolder) return;
-    const unsubscribeFile = onFolderWatchNewFile(handleWatchedFile);
+    if (!isElectron()) return;
+    const unsubscribeFile = onFolderWatchNewFile((file) => {
+      runWithWatchLimit(() => handleWatchedFile(file));
+    });
     const unsubscribeError = onFolderWatchError((message) => {
       addToast('error', 'Error en el escaneo automático', message);
     });
@@ -440,7 +483,7 @@ export function App() {
       unsubscribeError();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWatchingFolder, folderConfig, apiKey]);
+  }, [folderConfig, apiKey]);
 
   // Toggles a persistent watch on the origin folder (desktop app only):
   // every PDF already there when it starts, plus every one dropped in
@@ -670,7 +713,10 @@ export function App() {
   // Reveal an already-saved file in the OS file explorer (desktop app only)
   const handleShowInFolder = async (policy: ExtractedPolicyData) => {
     if (!policy.destinationPath) return;
-    await showInFolder(policy.destinationPath);
+    const result = await showInFolder(policy.destinationPath);
+    if (!result.success) {
+      addToast('error', 'No se pudo mostrar el archivo', result.error || 'El archivo ya no existe en esa ubicación.');
+    }
   };
 
   // Copy policy number toast trigger

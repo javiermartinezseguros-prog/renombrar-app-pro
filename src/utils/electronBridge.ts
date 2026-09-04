@@ -77,9 +77,18 @@ export async function saveFileToDestination(
   return window.electronAPI.saveFileToFolder(folderPath, fileName, dataUrl, oldFileName);
 }
 
-/** Reveals a saved file in the OS file explorer (desktop app only). */
-export async function showInFolder(filePath: string): Promise<void> {
-  await window.electronAPI?.showInFolder(filePath);
+/**
+ * Reveals a saved file in the OS file explorer (desktop app only). Returns
+ * the underlying {success, error} result instead of discarding it — the old
+ * version silently swallowed a "file no longer exists" error, so clicking
+ * the button did nothing with no feedback when the file had been moved or
+ * deleted outside the app.
+ */
+export async function showInFolder(filePath: string): Promise<{ success: boolean; error?: string }> {
+  if (!window.electronAPI) {
+    return { success: false, error: 'Disponible solo en la app de escritorio.' };
+  }
+  return window.electronAPI.showInFolder(filePath);
 }
 
 /**

@@ -1,5 +1,8 @@
 node_modules/
-build/
+build/*
+!build/icon.ico
+!build/icon.png
+!build/icon-source.svg
 dist/
 release/
 coverage/

@@ -1,0 +1,22 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App background: rounded square, warm amber-to-red gradient -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- Price/name tag glyph — renaming files is literally re-tagging them -->
+  <g transform="translate(96, 96) rotate(-8 160 160)">
+    <path d="M40 0 L232 0 C243 0 253.5 4.5 261 12.5 L312 66.5 C319 74 323 84 323 94.5 L323 280 C323 297.7 308.7 312 291 312 L40 312 C22.3 312 8 297.7 8 280 L8 32 C8 14.3 22.3 0 40 0 Z"
+          fill="#ffffff"/>
+    <circle cx="96" cy="88" r="34" fill="url(#bg)"/>
+
+    <!-- Text lines standing in for the file's new name -->
+    <rect x="60" y="176" width="204" height="22" rx="11" fill="#fbcfa0"/>
+    <rect x="60" y="220" width="150" height="22" rx="11" fill="#fbcfa0"/>
+  </g>
+</svg>

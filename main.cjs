@@ -14,6 +14,11 @@ function createWindow() {
     backgroundColor: '#0F1115',
     autoHideMenuBar: true,
     show: true,
+    // Sets the running window's/taskbar icon (separate from the installer's
+    // own icon, configured via build.win.icon in package.json) — without
+    // this the window fell back to Electron's generic default icon while
+    // running, even once the installer itself had a custom one.
+    icon: path.join(__dirname, 'build', 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -75,6 +80,32 @@ ipcMain.handle('select-folder', async () => {
   return result.filePaths[0];
 });
 
+// Confirmed real security gap: `fileName`/`oldFileName` come straight from
+// the renderer — ultimately from the user-editable filename field in the
+// review modal's "Editar Nombre Libremente" override, which was only ever
+// soft-validated (a warning icon, never a blocked submit) — and used to be
+// joined into a filesystem path with no check that the result stayed inside
+// `folderPath`. A name containing "..\" segments could write (or, via
+// `oldFileName`, delete) outside the configured destination folder.
+// `path.basename()` strips any directory components a name could smuggle in
+// while leaving every character of an actual filename untouched, so this
+// closes the escape without taking away the ability to freely name the
+// file — a resolved-path check underneath is the actual guarantee, in case
+// a future Node/path-parsing edge case ever let something slip past
+// `basename` alone.
+function safeDestinationPath(folderPath, fileName) {
+  const resolvedFolder = path.resolve(folderPath);
+  const safeName = path.basename(String(fileName || '').trim());
+  if (!safeName) {
+    throw new Error('Falta el nombre de archivo.');
+  }
+  const resolvedPath = path.resolve(resolvedFolder, safeName);
+  if (resolvedPath !== resolvedFolder && !resolvedPath.startsWith(resolvedFolder + path.sep)) {
+    throw new Error('Nombre de archivo inválido.');
+  }
+  return resolvedPath;
+}
+
 // Writes a policy PDF (received as a data: URL) directly into the
 // configured destination folder — this is what lets processed/edited
 // policies "just appear" in the output folder instead of requiring a manual
@@ -96,11 +127,11 @@ ipcMain.handle('save-file-to-folder', async (event, folderPath, fileName, dataUr
       throw new Error('El documento no tiene contenido PDF válido para guardar.');
     }
     const buffer = Buffer.from(match[1], 'base64');
-    const fullPath = path.join(folderPath, fileName);
+    const fullPath = safeDestinationPath(folderPath, fileName);
     fs.writeFileSync(fullPath, buffer);
 
     if (oldFileName && oldFileName !== fileName) {
-      const oldPath = path.join(folderPath, oldFileName);
+      const oldPath = safeDestinationPath(folderPath, oldFileName);
       if (fs.existsSync(oldPath)) {
         fs.rmSync(oldPath, { force: true });
       }
@@ -199,10 +230,25 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
     // One retry after a short delay absorbs a transient lock on its own;
     // if it still fails, the renderer now gets an explicit error toast
     // naming the file instead of nothing happening at all.
+    // Confirmed real gap: a plain `sender.send(...)` here could throw if the
+    // window/webContents was destroyed while a retry's 2-second setTimeout
+    // was still pending (e.g. the user closed the app in that window) —
+    // window-all-closed stops the watcher but not an already-scheduled
+    // timer, and that throw was uncaught, crashing the main process during
+    // shutdown. Checking isDestroyed() first (plus a belt-and-suspenders
+    // try/catch) makes a late send a harmless no-op instead.
+    const safeSend = (channel, payload) => {
+      if (sender.isDestroyed()) return;
+      try {
+        sender.send(channel, payload);
+      } catch (err) {
+        console.error('[FolderWatch] No se pudo enviar al renderer (probablemente ya cerrado):', err);
+      }
+    };
     const readAndSend = (filePath, isRetry) => {
       try {
         const buffer = fs.readFileSync(filePath);
-        sender.send('folder-watch-new-file', {
+        safeSend('folder-watch-new-file', {
           name: path.basename(filePath),
           path: filePath,
           size: buffer.length,
@@ -214,7 +260,7 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
           return;
         }
         console.error('[FolderWatch] Error leyendo archivo:', err);
-        sender.send(
+        safeSend(
           'folder-watch-error',
           `No se pudo leer "${path.basename(filePath)}": ${err.message || err}. Puede estar bloqueado por otro programa (antivirus, otra app) o dañado.`
         );
@@ -233,7 +279,7 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
     activeFolderWatcher.on('change', handleFile);
     activeFolderWatcher.on('error', (err) => {
       console.error('[FolderWatch] Error:', err);
-      sender.send('folder-watch-error', err.message || String(err));
+      safeSend('folder-watch-error', err.message || String(err));
     });
 
     return { success: true };

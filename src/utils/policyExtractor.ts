@@ -42,7 +42,14 @@ function mergeWithRules(aiData: any, ruleData: RuleExtractionResult, matchedComp
     rubro: aiData.rubro || ruleData.rubro,
     vigenciaDesde: aiData.vigenciaDesde || ruleData.vigenciaDesde,
     vigenciaHasta: aiData.vigenciaHasta || ruleData.vigenciaHasta,
-    vehiculo: aiData.vehiculo || ruleData.vehiculo,
+    // Confirmed real bug: `aiData.vehiculo || ruleData.vehiculo` let a
+    // truthy-but-incomplete AI object (e.g. `{}` or `{marca: "x"}` with no
+    // patente — the AI schema doesn't mark any vehiculo sub-field required)
+    // silently win over a rule-engine vehiculo that DOES have a real,
+    // regex-matched patente, discarding correctly-extracted plate data.
+    // Prefer whichever side actually found a patente; only fall back to the
+    // other when neither (or both) did.
+    vehiculo: aiData.vehiculo?.patente ? aiData.vehiculo : ruleData.vehiculo?.patente ? ruleData.vehiculo : (aiData.vehiculo || ruleData.vehiculo),
     premioTotal: aiData.premioTotal || ruleData.premioTotal,
   };
 }
@@ -76,7 +83,15 @@ export async function extractPolicyData(
 
     if (response.ok) {
       const resJson = await response.json();
-      if (resJson && resJson.data && resJson.source === 'gemini-ai') {
+      // Confirmed real bug: this accepted ANY response with a `data` object
+      // as long as `source === 'gemini-ai'`, with no check that the AI
+      // actually found a policy number — unlike the direct-client path
+      // below (`parsed.compania && parsed.numeroPoliza`, ~line 156). An
+      // empty-numeroPoliza response with a self-reported "confianza: Alta"
+      // used to sail straight through un-flagged. Require the same minimum
+      // fields here too, so a thin/empty proxy response falls through to
+      // the direct-client attempt (or the rule-based fallback) instead.
+      if (resJson && resJson.data && resJson.source === 'gemini-ai' && resJson.data.compania && resJson.data.numeroPoliza) {
         return { data: mergeWithRules(resJson.data, ruleData, matchedCompany), source: resJson.source };
       }
     }

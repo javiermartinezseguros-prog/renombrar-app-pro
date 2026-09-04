@@ -427,7 +427,12 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
   {
     id: 'bbva-seguros',
     displayName: 'BBVA Seguros',
-    aliases: ['bbva seguros', 'consolidar seguros', 'consolidar'],
+    // Bare 'consolidar' removed — confirmed real bug: it's an ordinary
+    // Spanish verb ("para consolidar su cobertura...") that detectCompany's
+    // plain substring match could hit in any unrelated insurer's boilerplate
+    // text, misclassifying the whole document. 'consolidar seguros' (the
+    // full brand phrase) is specific enough to keep.
+    aliases: ['bbva seguros', 'consolidar seguros'],
     category: 'Generales',
   },
   {

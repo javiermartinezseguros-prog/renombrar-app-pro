@@ -289,7 +289,13 @@ export function extractVehicle(text: string) {
  * (two bare dates back to back, no desde/hasta words at all).
  */
 export function extractDates(text: string): { desde?: string; hasta?: string } {
-  const idx = text.toLowerCase().search(/vig(?:encia)?/);
+  // Confirmed real bug: the "(?:encia)?" made this match the bare substring
+  // "vig" anywhere — including inside unrelated words like "vigilancia" —
+  // anchoring the 300-char search window at that earlier, wrong position
+  // and missing the real VIGENCIA DESDE/HASTA field entirely. All three
+  // documented real layouts above spell out "vigencia" in full, so require
+  // the whole word.
+  const idx = text.toLowerCase().search(/vigencia/);
   if (idx === -1) return {};
   const window = text.slice(idx, idx + 300);
 

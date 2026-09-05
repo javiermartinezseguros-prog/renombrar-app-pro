@@ -222,26 +222,14 @@ function findAfterLabel(
 export function detectDocumentType(text: string, fileName: string, numeroEndoso?: string): DocumentType {
   const combined = `${fileName} ${text}`.toLowerCase();
 
-  // Mercosur RC-card checks run BEFORE the generic Cobertura check below —
-  // these certificates almost always ALSO print a bare "CERTIFICADO N°"
-  // column somewhere (confirmed real: San Cristóbal's bilingual Mercosur
-  // cert has "POLIZA N° / APOLICE N° CERTIFICADO N°" as a column header),
-  // which would otherwise satisfy the weaker, more generic "certificado
-  // n[°º]" Cobertura signal below and never even reach this check. The
-  // opening legal boilerplate sentence ("responsabilidad civil de[l]
-  // propietario y/o conductor de vehículos de paseo...") is a far stronger,
-  // more specific signal — confirmed identical (word-for-word, same
-  // Mercosur legal template) across San Cristóbal, Mercantil Andina,
-  // Intégrity and Federación Patronal's real certificates, so this
-  // generalizes across insurers instead of needing a fresh per-company
-  // keyword patch each time a new one turns up. "certificado de mercosur"
-  // and "seguro obligatorio del automotor" are additional confirmed-real
-  // phrasings from the same template family.
-  if (
-    /(responsabilidad civil del?\s*propietario\s*y\/?o?\s*conductor|tarjeta de circulaci[oó]n|tarjeta de rc|tarjeta mercosur|certificado de mercosur|seguro obligatorio (?:del\s+)?autom[oó]tor)/.test(
-      combined
-    )
-  ) {
+  // Only the DOMESTIC circulation card counts as "Tarjeta de RC". The
+  // Mercosur/international RC certificate (same underlying coverage, but for
+  // travel to bordering countries) is deliberately classified as "Cobertura"
+  // instead, per explicit user decision — even though it legally serves the
+  // same purpose, the user considers it a "certificado" (it says so in its
+  // own title), not a "tarjeta". See the Cobertura check below, which now
+  // carries the Mercosur-specific signals that used to live here.
+  if (/(tarjeta de circulaci[oó]n|tarjeta de rc|seguro obligatorio (?:del\s+)?autom[oó]tor)/.test(combined)) {
     return 'Tarjeta de RC';
   }
   // NOTE: "Cláusula de No Repetición" was removed as a signal here — confirmed
@@ -249,7 +237,24 @@ export function detectDocumentType(text: string, fileName: string, numeroEndoso?
   // (endosos and suplementos included), not something specific to Cobertura.
   // It mis-classified real Mercantil Andina Suplemento Adicional (Endoso)
   // documents as Cobertura just because they mention that standard clause.
-  if (/(constancia de cobertura|certificado de cobertura|certificado n[°º])/.test(combined)) {
+  // The Mercosur/international RC certificate patterns below run in this
+  // same check (rather than a bare "certificado n[°º]" match alone, which
+  // could apply to other kinds of certificates too) — confirmed real: San
+  // Cristóbal's bilingual Mercosur cert prints "POLIZA N° / APOLICE N°
+  // CERTIFICADO N°" as a column header, and its opening legal boilerplate
+  // sentence ("responsabilidad civil de[l] propietario y/o conductor de
+  // vehículos de paseo...") is confirmed identical (word-for-word, same
+  // Mercosur legal template) across San Cristóbal, Mercantil Andina,
+  // Intégrity and Federación Patronal's real certificates, so it generalizes
+  // across insurers instead of needing a fresh per-company keyword patch
+  // each time a new one turns up. "certificado de mercosur"/"tarjeta
+  // mercosur" are additional confirmed-real phrasings from the same
+  // template family.
+  if (
+    /(responsabilidad civil del?\s*propietario\s*y\/?o?\s*conductor|tarjeta mercosur|certificado de mercosur|constancia de cobertura|certificado de cobertura|certificado n[°º])/.test(
+      combined
+    )
+  ) {
     return 'Cobertura';
   }
   // NOTE: "plan de pago", "pagomiscuentas" AND "código de link pagos" were

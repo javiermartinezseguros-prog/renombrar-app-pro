@@ -189,7 +189,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             id="btn-open-folder-config"
             onClick={onOpenFolderConfig}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all active:scale-[0.97]"
             title="Configurar carpetas permanentes de entrada y salida"
           >
             <FolderCog className="w-3.5 h-3.5 text-blue-500" />
@@ -201,7 +201,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="btn-export-all-zip"
               onClick={onExportAllZip}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs shadow-blue-500/20 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs shadow-blue-500/20 transition-all active:scale-[0.97]"
               title="Descargar todos los archivos renombrados organizados en ZIP"
             >
               <DownloadCloud className="w-3.5 h-3.5" />

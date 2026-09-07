@@ -31,7 +31,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ policies, onFilterClick 
       {/* Total Card */}
       <div
         onClick={() => onFilterClick('all')}
-        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-blue-400 cursor-pointer transition-all"
+        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-blue-400 cursor-pointer transition-all active:scale-[0.97]"
       >
         <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
           <span className="text-[11px] font-semibold uppercase tracking-wider">Total</span>
@@ -44,7 +44,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ policies, onFilterClick 
       {/* Pólizas */}
       <div
         onClick={() => onFilterClick('Póliza')}
-        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-blue-500 cursor-pointer transition-all"
+        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-blue-500 cursor-pointer transition-all active:scale-[0.97]"
       >
         <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
           <span className="text-[11px] font-semibold uppercase tracking-wider">Pólizas</span>
@@ -57,7 +57,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ policies, onFilterClick 
       {/* Endosos */}
       <div
         onClick={() => onFilterClick('Endoso')}
-        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-purple-500 cursor-pointer transition-all"
+        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-purple-500 cursor-pointer transition-all active:scale-[0.97]"
       >
         <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
           <span className="text-[11px] font-semibold uppercase tracking-wider">Endosos</span>
@@ -70,7 +70,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ policies, onFilterClick 
       {/* Tarjetas RC */}
       <div
         onClick={() => onFilterClick('Tarjeta de RC')}
-        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-amber-500 cursor-pointer transition-all"
+        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-amber-500 cursor-pointer transition-all active:scale-[0.97]"
       >
         <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
           <span className="text-[11px] font-semibold uppercase tracking-wider">Tarjeta RC</span>
@@ -83,7 +83,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ policies, onFilterClick 
       {/* Cuponeras */}
       <div
         onClick={() => onFilterClick('Cuponera')}
-        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-emerald-500 cursor-pointer transition-all"
+        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-emerald-500 cursor-pointer transition-all active:scale-[0.97]"
       >
         <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
           <span className="text-[11px] font-semibold uppercase tracking-wider">Cuponeras</span>
@@ -98,7 +98,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ policies, onFilterClick 
       {/* Coberturas */}
       <div
         onClick={() => onFilterClick('Cobertura')}
-        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-cyan-500 cursor-pointer transition-all"
+        className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs hover:border-cyan-500 cursor-pointer transition-all active:scale-[0.97]"
       >
         <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
           <span className="text-[11px] font-semibold uppercase tracking-wider">Coberturas</span>
@@ -113,7 +113,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ policies, onFilterClick 
       {/* Revisión Manual Requerida */}
       <div
         onClick={() => onFilterClick('revision')}
-        className={`p-3.5 rounded-2xl border shadow-2xs cursor-pointer transition-all ${
+        className={`p-3.5 rounded-2xl border shadow-2xs cursor-pointer transition-all active:scale-[0.97] ${
           revisionCount > 0
             ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 hover:border-rose-500'
             : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-70'

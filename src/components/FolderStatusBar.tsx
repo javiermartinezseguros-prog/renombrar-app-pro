@@ -69,7 +69,7 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
               id="btn-scan-and-process-folder"
               onClick={onScanAndProcessFolder}
               disabled={isScanning}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold disabled:opacity-50 shadow-2xs transition-colors ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold disabled:opacity-50 shadow-2xs transition-all active:scale-[0.97] ${
                 isWatching
                   ? 'bg-rose-600 hover:bg-rose-700 text-white'
                   : 'bg-emerald-600 hover:bg-emerald-700 text-white'

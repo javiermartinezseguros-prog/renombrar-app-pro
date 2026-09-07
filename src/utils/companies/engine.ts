@@ -61,6 +61,16 @@ const GENERIC_ENDORSEMENT_LABELS = [
 const GENERIC_INSURED_LABELS = [
   'razón social del tomador',
   'razon social del tomador',
+  // Confirmed real bug (ATM Seguros' "Liquidación del Premio" section): the
+  // fuller "Nombre y Apellido / Razón Social :" form must be tried before
+  // the bare "nombre y apellido" below, since the trailing "/ Razón Social"
+  // words aren't a leading separator the generic NAME_VALUE_PATTERN skips
+  // over — matching the shorter label first grabbed "Razón Social" itself
+  // as if it were the value, which trimAtNextLabel then correctly recognized
+  // as a field-boundary word and trimmed down to nothing, silently losing
+  // the real name entirely (asegurado ended up undefined, not just wrong).
+  'nombre y apellido / razón social',
+  'nombre y apellido / razon social',
   'nombre y apellido', // Federación Patronal "DATOS DEL ASEGURADO" block
   'tomador / asegurado',
   'tomador/asegurado',

@@ -298,10 +298,18 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
   {
     id: 'atm-seguros',
     displayName: 'ATM Compañía de Seguros S.A.',
-    aliases: ['atm seguros', 'atm compañía de seguros'],
+    // "el importe será debitado de cbu" is a confirmed-real fingerprint
+    // phrase, not company branding — needed because their newer "Tarjeta de
+    // Circulación" template (see the bare-ID fallback in customExtract
+    // below) bakes literally every label, including the company name, into
+    // a background image. pdf.js's text layer for that layout comes back
+    // with exactly 14 bare value strings and zero "ATM" text anywhere, so
+    // alias matching would otherwise fail on it completely — same problem,
+    // and same fix, as Mercantil Andina's cuponera below.
+    aliases: ['atm seguros', 'atm compañía de seguros', 'el importe será debitado de cbu'],
     category: 'Generales',
     defaultRubro: 'Automotor',
-    // Confirmed real fields on their tarjeta de circulación: "Asegurado:",
+    // Confirmed real fields on their (older) tarjeta de circulación: "Asegurado:",
     // "Vehiculo:", "Patente:", "Póliza Nro." (format "03 - 01102551"),
     // "Vigencia desde X al Y". Their "Liquidación de Premio / Frente de
     // Póliza" layout is a different real format: a "SECCIÓN PÓLIZA Nº
@@ -319,13 +327,62 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
       if (match) {
         result.numeroPoliza = match[1];
         result.numeroEndoso = match[2];
+        return result;
+      }
+
+      // Confirmed real, second "Liquidación de Premio / Frente de Póliza"
+      // variant (a renewal/"Copia de Póliza Original"): this one never
+      // restates "PÓLIZA: NNN / NN" at all, so the fallback above finds
+      // nothing. Its "SECCIÓN PÓLIZA Nº ENDOSO Nº VIGENCIA" table header is
+      // real, but the value row directly below it is just the VIGENCIA
+      // column's own wrapped "Desde las 12:00:00 Hs. del DD/MM/AAAA" line —
+      // the real "<RUBRO> <póliza> <endoso>" row (e.g. "MOTOVEHICULOS
+      // 6571033 0") sits one line further down than that. Without this, the
+      // generic header-search grabs "12" (out of "12:00:00") for BOTH
+      // numeroPoliza and numeroEndoso — confirmed real, produces an
+      // identical, silently wrong "12"/"12" pair instead of "6571033"/"0".
+      const tableMatch = text.match(
+        /secci[oó]n\s+p[oó]liza\s+n[°º]\s+endoso\s+n[°º]\s+vigencia[\s\S]{0,80}?\n\s*[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,30}\s+(\d{4,10})\s+(\d{1,3})\s*\n/i
+      );
+      if (tableMatch) {
+        result.numeroPoliza = tableMatch[1];
+        result.numeroEndoso = tableMatch[2];
+        return result;
+      }
+
+      // Confirmed real: their newer "Tarjeta de Circulación" template (see
+      // the alias note above) has no field labels at all in its text layer,
+      // so the generic engine finds nothing here either. The only reliable
+      // anchor is its bare "<sucursal> - <póliza>" pair (e.g. "04 -
+      // 06571033"); it never prints an endoso number on this layout (the
+      // app's own "00" default applies, same as San Cristóbal's tarjeta).
+      // tipoDocumento is set directly here too, since neither the filename
+      // nor the text contain any of the usual "tarjeta de circulación"/
+      // "tarjeta de rc" keywords for the generic classifier to go on.
+      const bareMatch = text.match(/\b(\d{2})\s*-\s*(\d{5,10})\b/);
+      if (bareMatch) {
+        result.numeroPoliza = bareMatch[2];
+        result.tipoDocumento = 'Tarjeta de RC';
+        // The insured's name is the very next line after the bare ID on
+        // this layout too (confirmed real, same positioning San Cristóbal's
+        // own tarjeta uses) — no label anywhere nearby for the generic
+        // engine's insuredLabels search to anchor on at all.
+        const nameMatch = text.match(
+          /\b\d{2}\s*-\s*\d{5,10}\b\s*\n\s*([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ\s]{3,40})\s*\n/
+        );
+        if (nameMatch) {
+          result.asegurado = nameMatch[1].trim();
+        }
       }
       return result;
     },
     notes:
-      'REAL: Tarjeta de Circulación / RC verificada. También confirmado real: Liquidación de Premio / ' +
-      'Frente de Póliza, donde "PÓLIZA Nº" en el encabezado de tabla no sirve por un renglón de factura ' +
-      'interpuesto — se usa la restitución "PÓLIZA: NNN / NN" más abajo (ver customExtract).',
+      'REAL: Tarjeta de Circulación / RC verificada (dos variantes: una con labels de texto reales, y una ' +
+      'más nueva con todos los labels — incluida la marca ATM — horneados en una imagen de fondo, ver ' +
+      'alias y customExtract). También confirmado real: Liquidación de Premio / Frente de Póliza (dos ' +
+      'variantes: una que restituye "PÓLIZA: NNN / NN" más abajo, y una — la de renovación — que no lo ' +
+      'hace y hay que leer directo de la fila de la tabla "SECCIÓN PÓLIZA Nº ENDOSO Nº VIGENCIA", ver ' +
+      'customExtract).',
   },
 
   {

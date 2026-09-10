@@ -96,8 +96,27 @@ const DATE_PATTERN = /\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b/g;
 const VIGENCIA_CONNECTOR = '[:\\s]*(?:\\d{1,2}\\s*hs\\.?\\s*)?(?:del|de)?\\s*';
 const DESDE_PATTERN = new RegExp(`desde${VIGENCIA_CONNECTOR}(\\d{1,2}[\\/\\-.]\\d{1,2}[\\/\\-.]\\d{2,4})`, 'i');
 const HASTA_PATTERN = new RegExp(`(?:hasta|\\bal\\b)${VIGENCIA_CONNECTOR}(\\d{1,2}[\\/\\-.]\\d{1,2}[\\/\\-.]\\d{2,4})`, 'i');
-// Old-format patente (e.g. JAC577) or Mercosur format (e.g. AF030UP).
-const PATENTE_PATTERN = /\b([A-Z]{2}\s?\d{3}\s?[A-Z]{2}|[A-Z]{3}\s?\d{3})\b/;
+// Old-format car patente (e.g. JAC577, LLL-DDD) or Mercosur car format
+// (e.g. AF030UP, LL-DDD-LL); old-format moto patente (e.g. 721LPC, DDD-LLL)
+// or Mercosur moto format (e.g. A163HYR, L-DDD-LLL) — confirmed real: motos
+// use a DIFFERENT digit/letter arrangement than cars on both the old and
+// Mercosur schemes, which doubles as a reliable Automotor-vs-Motovehículos
+// signal (see inferRubroFromPatente below) for the many real ATM documents
+// that carry no rubro/ramo/sección label at all.
+const PATENTE_CHARS =
+  '(?:[A-Z]{2}\\s?\\d{3}\\s?[A-Z]{2}|[A-Z]{3}\\s?\\d{3}|[A-Z]\\s?\\d{3}\\s?[A-Z]{3}|\\d{3}\\s?[A-Z]{3})';
+const PATENTE_PATTERN = new RegExp(`\\b(${PATENTE_CHARS})\\b`);
+// Confirmed real bug (ATM Seguros' bare "Tarjeta"/"Cuponera" templates,
+// which print no field labels at all): the vehicle's own brand/model text
+// can coincidentally look like a patente (e.g. "HONDA GLH 150" matches the
+// old-car LLL-DDD shape on "GLH 150") and sits BEFORE the real plate in
+// reading order, so a blind first-match search grabs the wrong one. On
+// every one of these bare templates the real plate is always immediately
+// followed by the vehicle's year (e.g. "A163HYR 2022", "MNB178 2013") —
+// tried first; the plain, unanchored pattern above is the fallback for
+// labeled layouts that don't happen to print a year right next to the
+// plate.
+const PATENTE_WITH_YEAR_PATTERN = new RegExp(`\\b(${PATENTE_CHARS})\\s+(?:19|20)\\d{2}\\b`);
 const AMOUNT_PATTERN = /\$\s?\*{0,2}[\d.,]+|(?:ARS|USD)\s?[\d.,]+/i;
 // Digit run that may bridge to further digit runs ONLY across actual
 // separator punctuation (with optional surrounding spaces) — e.g.
@@ -292,9 +311,23 @@ export function detectDocumentType(text: string, fileName: string, numeroEndoso?
 }
 
 export function extractVehicle(text: string) {
-  const patenteMatch = text.match(PATENTE_PATTERN);
+  const patenteMatch = text.match(PATENTE_WITH_YEAR_PATTERN) || text.match(PATENTE_PATTERN);
   if (!patenteMatch) return undefined;
-  return { patente: patenteMatch[0].replace(/\s+/g, '') };
+  return { patente: patenteMatch[1].replace(/\s+/g, '') };
+}
+
+/**
+ * Infers Automotor vs. Motovehículos from a plate's own letter/digit shape
+ * (see PATENTE_CHARS above) — the only signal available at all on the many
+ * real ATM documents (bare "Tarjeta"/"Cuponera" templates) that carry no
+ * rubro/ramo/sección label whatsoever. Returns undefined for anything that
+ * isn't unambiguously one shape or the other, so callers can fall back to a
+ * company's own defaultRubro instead of guessing.
+ */
+export function inferRubroFromPatente(patente: string): string | undefined {
+  if (/^[A-Z]{2}\d{3}[A-Z]{2}$/.test(patente) || /^[A-Z]{3}\d{3}$/.test(patente)) return 'Automotor';
+  if (/^[A-Z]\d{3}[A-Z]{3}$/.test(patente) || /^\d{3}[A-Z]{3}$/.test(patente)) return 'Motovehículos';
+  return undefined;
 }
 
 /**
@@ -369,7 +402,15 @@ export function extractGenericFields(
   // result being empty, not on whether a raw (pre-trim) match existed,
   // fixes this without weakening real values elsewhere.
   const trimmedRubro = rubroRaw ? trimAtNextLabel(rubroRaw.replace(/\s*\(.*\)\s*$/, '')) : '';
-  const rubro = trimmedRubro || def?.defaultRubro;
+  // Confirmed real (ATM Seguros' bare "Tarjeta"/"Cuponera" templates): no
+  // rubro/ramo/sección label exists anywhere in the text, so this used to
+  // fall straight to def?.defaultRubro regardless of what the policy
+  // actually covers — every motorcycle policy came out mislabeled
+  // "Automotor" just because that happens to be ATM's default. When the
+  // plate's own shape unambiguously says Automotor or Motovehículos (see
+  // inferRubroFromPatente), that real signal is checked before the
+  // company's default, not after.
+  const rubro = trimmedRubro || (vehiculo?.patente ? inferRubroFromPatente(vehiculo.patente) : undefined) || def?.defaultRubro;
 
   return {
     compania: def?.displayName,

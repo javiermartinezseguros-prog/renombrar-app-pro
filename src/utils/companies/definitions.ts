@@ -351,11 +351,23 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
       // numeroPoliza and numeroEndoso — confirmed real, produces an
       // identical, silently wrong "12"/"12" pair instead of "6571033"/"0".
       const tableMatch = text.match(
-        /secci[oó]n\s+p[oó]liza\s+n[°º]\s+endoso\s+n[°º]\s+vigencia[\s\S]{0,80}?\n\s*[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,30}\s+(\d{4,10})\s+(\d{1,3})\s*\n/i
+        /secci[oó]n\s+p[oó]liza\s+n[°º]\s+endoso\s+n[°º]\s+vigencia[\s\S]{0,80}?\n\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,30}?)\s+(\d{4,10})\s+(\d{1,3})\s*\n/i
       );
       if (tableMatch) {
-        result.numeroPoliza = tableMatch[1];
-        result.numeroEndoso = tableMatch[2];
+        // The same row also carries the real SECCIÓN value (MOTOVEHICULOS
+        // or AUTOMOTORES) — confirmed real: without reading it directly
+        // here, it fell all the way through to ATM's own defaultRubro
+        // ("Automotor"), silently mislabeling every motorcycle policy on
+        // this layout the same way the policy/endoso numbers used to be
+        // silently wrong.
+        // Anchored at the start: "AUTOMOTORES" contains the literal
+        // substring "MOTO" too (auto-MOTO-res) — an unanchored check would
+        // wrongly flag every car policy as a motorcycle.
+        const seccion = tableMatch[1].trim().toUpperCase();
+        if (/^MOTO/.test(seccion)) result.rubro = 'Motovehículos';
+        else if (/^AUTOM/.test(seccion)) result.rubro = 'Automotor';
+        result.numeroPoliza = tableMatch[2];
+        result.numeroEndoso = tableMatch[3];
         return result;
       }
 
@@ -417,6 +429,42 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
       'variantes: una que restituye "PÓLIZA: NNN / NN" más abajo, y una — la de renovación — que no lo ' +
       'hace y hay que leer directo de la fila de la tabla "SECCIÓN PÓLIZA Nº ENDOSO Nº VIGENCIA", ver ' +
       'customExtract).',
+  },
+  {
+    id: 'agrosalta',
+    displayName: 'Agrosalta Cooperativa de Seguros Limitada',
+    aliases: ['agrosalta'],
+    category: 'Generales',
+    defaultRubro: 'Automotor',
+    // Confirmed real: their "Tarjeta de Seguro Obligatorio" (domestic RC
+    // card) prints "Asegurado :" and "Póliza :" both with a space before the
+    // colon — none of the generic engine's labels account for that gap
+    // (they're all "asegurado:"/"póliza:"/"póliza n°" etc. with no space),
+    // so neither field is ever found by the generic pass at all. The policy
+    // number itself uses dots as thousand separators ("8.632.997");
+    // NUMERIC_ID_PATTERN already bridges across "." so that part isn't the
+    // problem, just the space before the colon blocking the label match in
+    // the first place. The insured's name is also only ever the rest of
+    // that same line — the generic NAME_VALUE_PATTERN crosses right into
+    // the next line's "SEGURO OBLIGATORIO AUTOMOTOR..." boilerplate
+    // sentence instead, since none of those words are in the shared
+    // NEXT_FIELD_BOUNDARY list.
+    customExtract: (text: string) => {
+      const result: Record<string, string> = {};
+      const policyMatch = text.match(/p[oó]liza\s*:\s*([\d.]{5,})/i);
+      if (policyMatch) {
+        result.numeroPoliza = policyMatch[1].replace(/\./g, '');
+      }
+      const nameMatch = text.match(/asegurado\s*:\s*([^\n]+)/i);
+      if (nameMatch) {
+        result.asegurado = nameMatch[1].trim();
+      }
+      return result;
+    },
+    notes:
+      'REAL: Tarjeta de Seguro Obligatorio (RC doméstica) — "Asegurado :" y "Póliza :" con espacio antes ' +
+      'de los dos puntos rompen las etiquetas genéricas, y el nombre real termina en el salto de línea ' +
+      '(ver customExtract).',
   },
 
   {

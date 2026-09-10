@@ -25,6 +25,11 @@ export interface ReadFolderResult {
   error?: string;
 }
 
+export interface AppUpdatedInfo {
+  version: string;
+  notes: string[];
+}
+
 interface ElectronAPI {
   isElectron: true;
   selectFolder: () => Promise<string | null>;
@@ -41,6 +46,7 @@ interface ElectronAPI {
   deleteOriginFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   onFolderWatchNewFile: (callback: (file: FolderPdfFile) => void) => () => void;
   onFolderWatchError: (callback: (message: string) => void) => () => void;
+  onAppUpdated: (callback: (info: AppUpdatedInfo) => void) => () => void;
 }
 
 declare global {
@@ -132,6 +138,16 @@ export function onFolderWatchNewFile(callback: (file: FolderPdfFile) => void): (
 export function onFolderWatchError(callback: (message: string) => void): () => void {
   if (!window.electronAPI) return () => {};
   return window.electronAPI.onFolderWatchError(callback);
+}
+
+/**
+ * Subscribes to the one-shot "what's new" notice the main process sends
+ * after the app relaunches into a version it hasn't seen before (see
+ * main.cjs's checkAndNotifyVersionUpdate). Returns an unsubscribe function.
+ */
+export function onAppUpdated(callback: (info: AppUpdatedInfo) => void): () => void {
+  if (!window.electronAPI) return () => {};
+  return window.electronAPI.onAppUpdated(callback);
 }
 
 /**

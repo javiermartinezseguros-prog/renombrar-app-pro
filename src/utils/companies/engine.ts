@@ -105,18 +105,29 @@ const HASTA_PATTERN = new RegExp(`(?:hasta|\\bal\\b)${VIGENCIA_CONNECTOR}(\\d{1,
 // that carry no rubro/ramo/sección label at all.
 const PATENTE_CHARS =
   '(?:[A-Z]{2}\\s?\\d{3}\\s?[A-Z]{2}|[A-Z]{3}\\s?\\d{3}|[A-Z]\\s?\\d{3}\\s?[A-Z]{3}|\\d{3}\\s?[A-Z]{3})';
-const PATENTE_PATTERN = new RegExp(`\\b(${PATENTE_CHARS})\\b`);
+// Confirmed real (ATM's payment-coupon layout): "HONDA-GLH 150 2022
+// A163HYR" — the brand/model's own false-positive match ("GLH 150", hyphen-
+// glued directly onto "HONDA" with no space) sits immediately before this
+// SAME year too, so the year-anchored checks below can't tell it apart from
+// the real plate ("A163HYR") by proximity to the year alone anymore. A real
+// plate is never hyphen-glued straight onto a preceding word in any
+// confirmed real sample — this negative lookbehind rejects that specific
+// false-positive shape everywhere a patente is searched for.
+const PATENTE_PATTERN = new RegExp(`(?<!-)\\b(${PATENTE_CHARS})\\b`);
 // Confirmed real bug (ATM Seguros' bare "Tarjeta"/"Cuponera" templates,
 // which print no field labels at all): the vehicle's own brand/model text
 // can coincidentally look like a patente (e.g. "HONDA GLH 150" matches the
 // old-car LLL-DDD shape on "GLH 150") and sits BEFORE the real plate in
 // reading order, so a blind first-match search grabs the wrong one. On
-// every one of these bare templates the real plate is always immediately
-// followed by the vehicle's year (e.g. "A163HYR 2022", "MNB178 2013") —
-// tried first; the plain, unanchored pattern above is the fallback for
-// labeled layouts that don't happen to print a year right next to the
-// plate.
-const PATENTE_WITH_YEAR_PATTERN = new RegExp(`\\b(${PATENTE_CHARS})\\s+(?:19|20)\\d{2}\\b`);
+// most of these bare templates the real plate is immediately followed by
+// the vehicle's year (e.g. "A163HYR 2022", "MNB178 2013") — tried first.
+// ATM's own payment-coupon variant of the same bare template prints the
+// year BEFORE the plate instead ("HONDA-GLH 150 2022 A163HYR") — tried
+// second, for that real, confirmed reversed case. The plain, unanchored
+// pattern further below is the last-resort fallback for labeled layouts
+// that don't happen to print a year next to the plate at all.
+const PATENTE_WITH_YEAR_PATTERN = new RegExp(`(?<!-)\\b(${PATENTE_CHARS})\\s+(?:19|20)\\d{2}\\b`);
+const PATENTE_AFTER_YEAR_PATTERN = new RegExp(`\\b(?:19|20)\\d{2}\\s+(${PATENTE_CHARS})\\b`);
 const AMOUNT_PATTERN = /\$\s?\*{0,2}[\d.,]+|(?:ARS|USD)\s?[\d.,]+/i;
 // Digit run that may bridge to further digit runs ONLY across actual
 // separator punctuation (with optional surrounding spaces) — e.g.
@@ -297,16 +308,20 @@ export function detectDocumentType(text: string, fileName: string, numeroEndoso?
   ) {
     return 'Cobertura';
   }
-  // NOTE: "plan de pago", "pagomiscuentas" AND "código de link pagos" were
-  // all removed — confirmed too broad, one after another. Mercantil Andina
-  // repeats a generic "how to pay" section/footer across nearly every one of
-  // its document types (Frente de Póliza and Suplemento included), so none
-  // of these payment-related phrases end up being exclusive to an actual
-  // payment coupon. A real coupon's company-specific structural fingerprint
-  // (its values print twice, once per side-by-side column) is handled
-  // directly in Mercantil Andina's own customExtract instead, which is more
-  // reliable than any keyword here.
-  if (/(cup[oó]n oficial|cuponera|c[oó]digo de pago electr[oó]nico)/.test(combined)) {
+  // NOTE: "plan de pago", "pagomiscuentas", "código de link pagos" AND
+  // "código de pago electrónico" were all removed — confirmed too broad,
+  // one after another. Mercantil Andina repeats a generic "how to pay"
+  // section/footer across nearly every one of its document types (Frente de
+  // Póliza and Suplemento included), so none of these payment-related
+  // phrases end up being exclusive to an actual payment coupon; ATM prints
+  // "Código de pago electrónico: NNNNN" on its real Tarjeta de Circulación
+  // (RC card) too — it's just a payment reference number on the card, not a
+  // sign the document itself is a coupon. A real coupon's own structural
+  // fingerprint (Mercantil Andina: its values print twice, once per
+  // side-by-side column; ATM: its distinct "PÓLIZA/S ... / ..." + "TU PLAN
+  // DE PAGOS"/vencimiento layout) is handled directly in each company's own
+  // customExtract instead, which is more reliable than any keyword here.
+  if (/(cup[oó]n oficial|cuponera)/.test(combined)) {
     return 'Cuponera';
   }
   if (/(suplemento adicional|suplemento n[°º]|endoso de p[oó]liza|modificaci[oó]n de p[oó]liza)/.test(combined)) {
@@ -332,6 +347,7 @@ export function extractVehicle(text: string) {
   const patenteMatch =
     text.match(new RegExp(`(?:patente|dominio)\\s*:?\\s*(${PATENTE_CHARS})`, 'i')) ||
     text.match(PATENTE_WITH_YEAR_PATTERN) ||
+    text.match(PATENTE_AFTER_YEAR_PATTERN) ||
     text.match(PATENTE_PATTERN);
   if (!patenteMatch) return undefined;
   return { patente: patenteMatch[1].replace(/\s+/g, '') };

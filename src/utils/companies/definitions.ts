@@ -298,24 +298,24 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
   {
     id: 'atm-seguros',
     displayName: 'ATM Compañía de Seguros S.A.',
-    // "el importe será debitado de" and "código de pago electrónico" are
+    // "el importe será debitado de" and "pago electrónico" are
     // confirmed-real fingerprint phrases, not company branding — needed
-    // because their newer "Tarjeta de Circulación"/"Cuponera" templates (see
-    // the bare-ID fallback in customExtract below) bake literally every
-    // label, including the company name, into a background image. pdf.js's
-    // text layer for that layout comes back with just 14 bare value strings
-    // and zero "ATM" text anywhere, so alias matching would otherwise fail
-    // on it completely — same problem, and same fix, as Mercantil Andina's
+    // because their bare "Tarjeta de Circulación" and "Cuponera" templates
+    // (see customExtract below) bake literally every label, including the
+    // company name, into a background image. pdf.js's text layer for those
+    // layouts comes back with just a handful of bare value strings and zero
+    // "ATM" text anywhere, so alias matching would otherwise fail on them
+    // completely — same problem, and same fix, as Mercantil Andina's
     // cuponera further down. Deliberately NOT "...debitado de cbu" — the
     // payment method printed after it varies (confirmed real: also seen
     // "...debitado de VISA"), and the fixed suffix silently missed every
-    // card paid by anything other than CBU.
-    aliases: [
-      'atm seguros',
-      'atm compañía de seguros',
-      'el importe será debitado de',
-      'código de pago electrónico',
-    ],
+    // card paid by anything other than CBU. "pago electrónico" (not
+    // "código de pago electrónico") deliberately matches BOTH the RC card's
+    // "Código de pago electrónico: NNNNN" reference line AND the real
+    // payment coupon's shorter "PAGO ELECTRÓNICO" heading — company
+    // detection doesn't need to tell those two documents apart, only
+    // tipoDocumento does (see customExtract).
+    aliases: ['atm seguros', 'atm compañía de seguros', 'el importe será debitado de', 'pago electrónico'],
     category: 'Generales',
     defaultRubro: 'Automotor',
     // Confirmed real fields on their (older) tarjeta de circulación: "Asegurado:",
@@ -406,6 +406,25 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
         if (nameMatch) {
           result.asegurado = nameMatch[1].trim();
         }
+        return result;
+      }
+
+      // Confirmed real: their actual payment-coupon statement ("TU PLAN DE
+      // PAGOS", listing a due date and amount) is a DIFFERENT bare layout
+      // from the plain RC card below — it lists the main policy AND any
+      // bundled add-on/rider together as "PÓLIZA/S <suc>-<póliza> /
+      // <suc>-<rider>", so the real main policy is always the FIRST pair,
+      // same ordering already confirmed for the "PÓLIZA: NNN / NN" restated
+      // line further up. Neither this coupon nor the plain RC card below
+      // say "ATM" or any of the other Cuponera/RC keywords anywhere — both
+      // only ever carry some form of "pago electrónico" (see the alias
+      // above), so tipoDocumento has to be decided here explicitly instead
+      // of relying on detectDocumentType, which can't tell the two apart by
+      // company alone.
+      const cuponeraMatch = text.match(/p[oó]liza\/?s?\s*:?\s*(\d{2})\s*-\s*(\d{5,10})/i);
+      if (cuponeraMatch && /plan de pagos|vencimiento/i.test(text)) {
+        result.numeroPoliza = cuponeraMatch[2];
+        result.tipoDocumento = 'Cuponera';
         return result;
       }
 

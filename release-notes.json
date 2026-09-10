@@ -1,0 +1,9 @@
+{
+  "1.0.10": [
+    "ATM: corregido el número de póliza cuando un adicional (ej. un seguro de vida sumado a la póliza de auto/moto) imprime su propio número de póliza en el documento — ahora se toma siempre el de la póliza principal.",
+    "Agrosalta: corregido el número de póliza truncado cuando el primer grupo de dígitos separados por puntos tiene un solo dígito (ej. 8.632.997).",
+    "ATM: corregido el tipo de documento y la compañía en el cupón de pago y en la tarjeta de circulación cuando no incluyen el método de pago habitual.",
+    "ATM: corregida la patente detectada en motos cuando el texto de la marca/modelo del vehículo se confundía con una patente real.",
+    "Agrosalta: corregido el asegurado que se perdía en el Frente de Póliza."
+  ]
+}

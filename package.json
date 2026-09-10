@@ -1,7 +1,7 @@
 {
   "name": "renombrar-app-pro",
   "private": true,
-  "version": "1.0.9",
+  "version": "1.0.10",
   "main": "main.cjs",
   "type": "module",
   "scripts": {
@@ -26,7 +26,8 @@
       "main.cjs",
       "preload.cjs",
       "package.json",
-      "build/icon.ico"
+      "build/icon.ico",
+      "release-notes.json"
     ],
     "win": {
       "target": "nsis",

@@ -27,4 +27,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('folder-watch-error', listener);
     return () => ipcRenderer.removeListener('folder-watch-error', listener);
   },
+  onAppUpdated: (callback) => {
+    const listener = (event, info) => callback(info);
+    ipcRenderer.on('app-updated', listener);
+    return () => ipcRenderer.removeListener('app-updated', listener);
+  },
 });

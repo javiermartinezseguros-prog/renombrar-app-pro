@@ -4,6 +4,70 @@ const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const chokidar = require('chokidar');
 
+// Path of the bundled per-version release notes (see release-notes.json —
+// added to build.files in package.json so it ships inside app.asar). One
+// entry per version, keyed by the exact string app.getVersion()/
+// package.json's "version" produces; a version with nothing worth telling
+// the user about simply has no key here, which is treated as "nothing to
+// show" below rather than an error.
+const RELEASE_NOTES_PATH = path.join(__dirname, 'release-notes.json');
+
+/**
+ * Shows a "what's new" message the first time the app launches after
+ * updating to a new version — confirmed real request: `autoInstallOnAppQuit`
+ * silently installs the update on close and relaunches with the new version,
+ * with no visible sign anything even changed. Detected by comparing
+ * app.getVersion() against the last version this same installation ever
+ * recorded, persisted in a small JSON file under userData (survives the
+ * update itself, unlike anything bundled in app.asar). A missing record
+ * means this is the very first launch ever (a fresh install, not an
+ * update) — nothing is shown then, only the record is created, so the
+ * message only ever appears on a genuine upgrade.
+ */
+function checkAndNotifyVersionUpdate(win) {
+  try {
+    const currentVersion = app.getVersion();
+    const versionFilePath = path.join(app.getPath('userData'), 'last-seen-version.json');
+
+    let lastSeenVersion = null;
+    if (fs.existsSync(versionFilePath)) {
+      try {
+        lastSeenVersion = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8')).version || null;
+      } catch (err) {
+        console.error('[VersionNotice] No se pudo leer la versión anterior registrada:', err);
+      }
+    }
+
+    // Always re-stamp the current version, whether or not anything gets
+    // shown below — this is what makes the notice a one-shot per upgrade
+    // instead of repeating on every subsequent launch of the same version.
+    try {
+      fs.writeFileSync(versionFilePath, JSON.stringify({ version: currentVersion }), 'utf-8');
+    } catch (err) {
+      console.error('[VersionNotice] No se pudo registrar la versión actual:', err);
+    }
+
+    if (!lastSeenVersion || lastSeenVersion === currentVersion) return;
+
+    let notes = [];
+    if (fs.existsSync(RELEASE_NOTES_PATH)) {
+      try {
+        const allNotes = JSON.parse(fs.readFileSync(RELEASE_NOTES_PATH, 'utf-8'));
+        notes = Array.isArray(allNotes[currentVersion]) ? allNotes[currentVersion] : [];
+      } catch (err) {
+        console.error('[VersionNotice] No se pudieron leer las notas de la versión:', err);
+      }
+    }
+    if (notes.length === 0) return;
+
+    if (!win.webContents.isDestroyed()) {
+      win.webContents.send('app-updated', { version: currentVersion, notes });
+    }
+  } catch (err) {
+    console.error('[VersionNotice] Error inesperado al verificar la versión:', err);
+  }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1300,
@@ -35,6 +99,15 @@ function createWindow() {
   // Logs directos en la terminal para diagnosticar cualquier fallo de carga
   win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
     console.error(`[Electron Error] Fallo al cargar: ${errorCode} - ${errorDescription}`);
+  });
+
+  // Announces "what's new" once the renderer has actually mounted (and
+  // attached its listener) rather than right after createWindow() — sending
+  // any earlier risks the IPC message arriving before the renderer is ready
+  // to receive it, which Electron does not queue/replay (same class of race
+  // already fixed for the folder-watch's own new-file events).
+  win.webContents.on('did-finish-load', () => {
+    checkAndNotifyVersionUpdate(win);
   });
 
   // Electron >=26 delivers a single event-details object here; the old

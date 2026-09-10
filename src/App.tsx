@@ -10,6 +10,7 @@ import { PolicyInfoSheetModal } from './components/PolicyInfoSheetModal';
 import { DocumentPreviewModal } from './components/DocumentPreviewModal';
 import { FolderConfigModal } from './components/FolderConfigModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
+import { WhatsNewModal } from './components/WhatsNewModal';
 import {
   ExtractedPolicyData,
   FolderConfig,
@@ -29,7 +30,9 @@ import {
   onFolderWatchNewFile,
   onFolderWatchError,
   deleteOriginFile,
+  onAppUpdated,
   FolderPdfFile,
+  AppUpdatedInfo,
 } from './utils/electronBridge';
 
 const STORAGE_KEY_POLICIES = 'polizamaster_history_v1';
@@ -109,6 +112,16 @@ export function App() {
   // one-shot scan, so new PDFs dropped in later get picked up automatically
   // without the user clicking anything again.
   const [isWatchingFolder, setIsWatchingFolder] = useState(false);
+
+  // Set once, right after the app relaunches into a version it hasn't seen
+  // before (see main.cjs's checkAndNotifyVersionUpdate) — null the rest of
+  // the time, which the modal below renders as closed.
+  const [appUpdateNotice, setAppUpdateNotice] = useState<AppUpdatedInfo | null>(null);
+
+  useEffect(() => {
+    if (!isElectron()) return;
+    return onAppUpdated((info) => setAppUpdateNotice(info));
+  }, []);
 
   // Save to localStorage
   useEffect(() => {
@@ -965,6 +978,13 @@ Generado automáticamente por PólizaMaster Desktop
 
       {/* Floating Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
+      <WhatsNewModal
+        isOpen={Boolean(appUpdateNotice)}
+        version={appUpdateNotice?.version || ''}
+        notes={appUpdateNotice?.notes || []}
+        onClose={() => setAppUpdateNotice(null)}
+      />
     </div>
   );
 }

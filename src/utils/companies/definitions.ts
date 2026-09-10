@@ -332,24 +332,21 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // of trusting the generic header-search for this field on this layout.
     customExtract: (text: string) => {
       const result: Record<string, string> = {};
-      const match = text.match(/p[oó]liza:\s*(\d+)\s*\/\s*(\d+)/i);
-      if (match) {
-        result.numeroPoliza = match[1];
-        result.numeroEndoso = match[2];
-        return result;
-      }
 
-      // Confirmed real, second "Liquidación de Premio / Frente de Póliza"
-      // variant (a renewal/"Copia de Póliza Original"): this one never
-      // restates "PÓLIZA: NNN / NN" at all, so the fallback above finds
-      // nothing. Its "SECCIÓN PÓLIZA Nº ENDOSO Nº VIGENCIA" table header is
-      // real, but the value row directly below it is just the VIGENCIA
-      // column's own wrapped "Desde las 12:00:00 Hs. del DD/MM/AAAA" line —
-      // the real "<RUBRO> <póliza> <endoso>" row (e.g. "MOTOVEHICULOS
-      // 6571033 0") sits one line further down than that. Without this, the
-      // generic header-search grabs "12" (out of "12:00:00") for BOTH
-      // numeroPoliza and numeroEndoso — confirmed real, produces an
-      // identical, silently wrong "12"/"12" pair instead of "6571033"/"0".
+      // Tried FIRST, ahead of the "PÓLIZA: NNN / NN" restated-line match
+      // further down — confirmed real regression: on a "Liquidación de
+      // Premio" that bundles an add-on rider alongside the main policy
+      // (e.g. a small "COBERTURA: MUERTE UNICAMENTE" life rider tacked onto
+      // an Automotor/Motovehículos policy), THAT rider prints its OWN
+      // "PÓLIZA: NNN / NN" restated line too, with the rider's own,
+      // different policy number — not the main policy's. Trusting
+      // whichever "PÓLIZA: NNN / NN" line came first in reading order
+      // silently renamed the file with the rider's number instead of the
+      // real one. The "SECCIÓN PÓLIZA Nº ENDOSO Nº VIGENCIA" table is
+      // unambiguously about the MAIN policy — every page of the document
+      // repeats it — so it's the authoritative source whenever it can be
+      // read at all; the restated line remains as a fallback below for the
+      // rarer variant that never prints this table cleanly anywhere.
       const tableMatch = text.match(
         /secci[oó]n\s+p[oó]liza\s+n[°º]\s+endoso\s+n[°º]\s+vigencia[\s\S]{0,80}?\n\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,30}?)\s+(\d{4,10})\s+(\d{1,3})\s*\n/i
       );
@@ -368,6 +365,22 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
         else if (/^AUTOM/.test(seccion)) result.rubro = 'Automotor';
         result.numeroPoliza = tableMatch[2];
         result.numeroEndoso = tableMatch[3];
+        return result;
+      }
+
+      // Fallback for the "Liquidación de Premio / Frente de Póliza" variant
+      // (a renewal/"Copia de Póliza Original") whose "SECCIÓN...VIGENCIA"
+      // table never prints cleanly anywhere in the file — confirmed real:
+      // its value row is just the VIGENCIA column's own wrapped "Desde las
+      // 12:00:00 Hs. del DD/MM/AAAA" line, so the table match above finds
+      // nothing at all to read. This layout always restates the real
+      // numbers plainly as "PÓLIZA: 1708892 / 0" instead. Only reached when
+      // the table above found nothing, since (per the note above) this
+      // exact restated phrasing can also belong to a bundled rider.
+      const match = text.match(/p[oó]liza:\s*(\d+)\s*\/\s*(\d+)/i);
+      if (match) {
+        result.numeroPoliza = match[1];
+        result.numeroEndoso = match[2];
         return result;
       }
 
@@ -451,6 +464,41 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // NEXT_FIELD_BOUNDARY list.
     customExtract: (text: string) => {
       const result: Record<string, string> = {};
+
+      // Their "Frente de Póliza" layout is a different real format: a
+      // "TOMADOR / ASEGURADO POLIZA Nº ENDOSO Nº LUGAR" table header whose
+      // value row ("GUTIERREZ, IPORO FREDDY 8.632.997 0 Salta") never gets
+      // paired to it by pdfText.ts's row-pairing — confirmed real: both
+      // print as two separate, unpaired lines. Without this, the generic
+      // label search for "tomador / asegurado" finds the label fine but
+      // then reads straight into "POLIZA Nº ENDOSO Nº LUGAR..." (the rest
+      // of ITS OWN header row) as if that were the value, which
+      // trimAtNextLabel then correctly recognizes as a field-boundary word
+      // and trims to nothing — the insured's name was silently lost
+      // entirely, not just wrong.
+      const tableMatch = text.match(
+        /tomador\s*\/\s*asegurado\s+p[oó]liza\s+n[°º]\s+endoso\s+n[°º]\s+lugar[\s\S]{0,80}?\n\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ,\s]{2,40}?)\s+([\d.]{5,})\s+(\d{1,3})\s+\S/i
+      );
+      if (tableMatch) {
+        result.asegurado = tableMatch[1].trim().replace(/,\s*$/, '');
+        result.numeroPoliza = tableMatch[2].replace(/\./g, '');
+        result.numeroEndoso = tableMatch[3];
+        return result;
+      }
+
+      // Confirmed real: their "Tarjeta de Seguro Obligatorio" (domestic RC
+      // card) prints "Asegurado :" and "Póliza :" both with a space before
+      // the colon — none of the generic engine's labels account for that
+      // gap (they're all "asegurado:"/"póliza:"/"póliza n°" etc. with no
+      // space), so neither field is ever found by the generic pass at all.
+      // The policy number itself uses dots as thousand separators
+      // ("8.632.997"); NUMERIC_ID_PATTERN already bridges across "." so
+      // that part isn't the problem, just the space before the colon
+      // blocking the label match in the first place. The insured's name is
+      // also only ever the rest of that same line — the generic
+      // NAME_VALUE_PATTERN crosses right into the next line's "SEGURO
+      // OBLIGATORIO AUTOMOTOR..." boilerplate sentence instead, since none
+      // of those words are in the shared NEXT_FIELD_BOUNDARY list.
       const policyMatch = text.match(/p[oó]liza\s*:\s*([\d.]{5,})/i);
       if (policyMatch) {
         result.numeroPoliza = policyMatch[1].replace(/\./g, '');
@@ -462,9 +510,10 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
       return result;
     },
     notes:
-      'REAL: Tarjeta de Seguro Obligatorio (RC doméstica) — "Asegurado :" y "Póliza :" con espacio antes ' +
-      'de los dos puntos rompen las etiquetas genéricas, y el nombre real termina en el salto de línea ' +
-      '(ver customExtract).',
+      'REAL: Frente de Póliza — la fila "TOMADOR / ASEGURADO POLIZA Nº ENDOSO Nº LUGAR" nunca se ' +
+      'empareja con su fila de valores (ver customExtract). También confirmado real: Tarjeta de Seguro ' +
+      'Obligatorio (RC doméstica) — "Asegurado :" y "Póliza :" con espacio antes de los dos puntos ' +
+      'rompen las etiquetas genéricas, y el nombre real termina en el salto de línea (ver customExtract).',
   },
 
   {

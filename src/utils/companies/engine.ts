@@ -130,7 +130,18 @@ const AMOUNT_PATTERN = /\$\s?\*{0,2}[\d.,]+|(?:ARS|USD)\s?[\d.,]+/i;
 // policy number from a *different* trailing code, not to group digits
 // within one number the way "-" does for San Cristóbal ("01-05-01-...").
 // Bridging across it produced one wrong, concatenated "004397064000016".
-const NUMERIC_ID_PATTERN = /\d{2,}(?:\s*[.-]\s*\d+)*/;
+// Confirmed real bug (Agrosalta): a policy number printed with dots as
+// thousand separators — "8.632.997" — has just ONE digit in its leading
+// group whenever the total digit count isn't a multiple of 3 (8 | 632 |
+// 997), so the plain `\d{2,}` lead above never matched starting there; the
+// engine instead started matching one group later, at "632", silently
+// dropping the real leading digit ("632.997" → "632997" instead of
+// "8632997"). The first alternative below allows any digit-count leading
+// group as long as at least one bridging separator+digits follows — still
+// requiring that bridge is what keeps a genuinely isolated stray single
+// digit from matching on its own; the second alternative is the original,
+// unchanged fallback for a bare run with no separators at all.
+const NUMERIC_ID_PATTERN = /\d+(?:\s*[.-]\s*\d+)+|\d{2,}/;
 // Leading separators to skip past labels like "Asegurado | Tomador" or "Ramo -".
 const LEADING_SEP = '[:\\s|/-]*';
 // Some layouts print an internal customer/asegurado ID number right before
@@ -311,7 +322,17 @@ export function detectDocumentType(text: string, fileName: string, numeroEndoso?
 }
 
 export function extractVehicle(text: string) {
-  const patenteMatch = text.match(PATENTE_WITH_YEAR_PATTERN) || text.match(PATENTE_PATTERN);
+  // A real "Patente:"/"Dominio:" label beats both of the fallbacks below —
+  // confirmed real (ATM's fuller "Frente de Póliza", not just its bare
+  // cards): the vehicle's own brand/model line ("MARCA/MODELO: HONDA GLH
+  // 150") still comes before the labeled "PATENTE: A163HYR" value in
+  // reading order and still coincidentally looks plate-shaped, so even the
+  // year-anchored check below can pick the wrong one when a real label is
+  // sitting right there unused.
+  const patenteMatch =
+    text.match(new RegExp(`(?:patente|dominio)\\s*:?\\s*(${PATENTE_CHARS})`, 'i')) ||
+    text.match(PATENTE_WITH_YEAR_PATTERN) ||
+    text.match(PATENTE_PATTERN);
   if (!patenteMatch) return undefined;
   return { patente: patenteMatch[1].replace(/\s+/g, '') };
 }

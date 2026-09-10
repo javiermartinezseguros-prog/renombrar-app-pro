@@ -1,7 +1,7 @@
 {
   "name": "renombrar-app-pro",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.0.9",
   "main": "main.cjs",
   "type": "module",
   "scripts": {

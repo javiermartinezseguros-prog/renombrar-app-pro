@@ -5,5 +5,8 @@
     "ATM: corregido el tipo de documento y la compañía en el cupón de pago y en la tarjeta de circulación cuando no incluyen el método de pago habitual.",
     "ATM: corregida la patente detectada en motos cuando el texto de la marca/modelo del vehículo se confundía con una patente real.",
     "Agrosalta: corregido el asegurado que se perdía en el Frente de Póliza."
+  ],
+  "1.0.11": [
+    "Corregido: cuando dos documentos distintos calculaban el mismo nombre final (ej. uno falló la extracción y cayó en el nombre genérico), el segundo pisaba al primero en la carpeta de destino sin avisar. Ahora se guardan los dos, agregando \"(2)\", \"(3)\"... al que se repite, y queda marcado para revisión."
   ]
 }

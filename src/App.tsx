@@ -339,6 +339,23 @@ export function App() {
             if (saveResult.success) {
               newRecord.savedToDisk = true;
               newRecord.destinationPath = saveResult.path;
+              // Confirmed real bug: main.cjs used to overwrite silently
+              // whenever a DIFFERENT document in the same batch already
+              // computed this exact standardName — 12 files in, only 8
+              // distinct names surviving on disk, with no visible sign
+              // anything was lost. main.cjs now appends "(2)"/"(3)..." on a
+              // real collision instead of overwriting; when it does, the
+              // table has to reflect that ACTUAL saved name too, or it
+              // would show a filename that isn't what's really in the
+              // destination folder.
+              const actualFileName = saveResult.path?.split(/[\\/]/).pop();
+              if (actualFileName && actualFileName !== standardName) {
+                newRecord.finalFileName = actualFileName;
+                newRecord.suggestedFileName = actualFileName;
+                newRecord.confianza = 'Baja';
+                newRecord.status = 'Revisión Requerida';
+                newRecord.observaciones = `${newRecord.observaciones ? newRecord.observaciones + ' — ' : ''}Ya existía otro archivo con el nombre "${standardName}" en destino (posible dato duplicado o extracción fallida en alguno de los dos); se guardó como "${actualFileName}" para no perder ninguno. Revisar.`;
+              }
             } else {
               console.warn(`Could not auto-save "${standardName}" to destination folder:`, saveResult.error);
             }

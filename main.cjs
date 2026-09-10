@@ -179,6 +179,36 @@ function safeDestinationPath(folderPath, fileName) {
   return resolvedPath;
 }
 
+// Confirmed real bug: `fs.writeFileSync` on the plain safeDestinationPath()
+// result silently overwrote whatever was already there — no existence
+// check at all. Two DIFFERENT source PDFs in the same batch that happen to
+// compute the identical standardName (same policy + endoso + tipo; the
+// most common real trigger is one of them failing extraction and falling
+// back to the shared "PZA-000000000-00" placeholder) clobbered each other
+// on disk with no warning: 12 files processed, only 8 distinct names
+// survived. If the existing file's bytes are identical to what's about to
+// be written, this is harmless (re-processing the same document/batch) and
+// overwrites in place as before; otherwise it finds the next available
+// "<name> (2).pdf", "<name> (3).pdf"... so neither document is ever lost.
+function findAvailableDestinationPath(folderPath, fileName, newBuffer) {
+  const primary = safeDestinationPath(folderPath, fileName);
+  if (!fs.existsSync(primary)) return primary;
+  try {
+    if (fs.readFileSync(primary).equals(newBuffer)) return primary;
+  } catch (err) {
+    // Existing file couldn't even be read back — safer to suffix below
+    // than to risk clobbering something unreadable/locked.
+  }
+  const base = fileName.replace(/\.pdf$/i, '');
+  for (let n = 2; n < 1000; n++) {
+    const candidate = safeDestinationPath(folderPath, `${base} (${n}).pdf`);
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+  // Practically unreachable (999 real collisions on one name), but never
+  // return a path we know is taken.
+  return safeDestinationPath(folderPath, `${base} (${Date.now()}).pdf`);
+}
+
 // Writes a policy PDF (received as a data: URL) directly into the
 // configured destination folder — this is what lets processed/edited
 // policies "just appear" in the output folder instead of requiring a manual
@@ -200,12 +230,12 @@ ipcMain.handle('save-file-to-folder', async (event, folderPath, fileName, dataUr
       throw new Error('El documento no tiene contenido PDF válido para guardar.');
     }
     const buffer = Buffer.from(match[1], 'base64');
-    const fullPath = safeDestinationPath(folderPath, fileName);
+    const fullPath = findAvailableDestinationPath(folderPath, fileName, buffer);
     fs.writeFileSync(fullPath, buffer);
 
     if (oldFileName && oldFileName !== fileName) {
       const oldPath = safeDestinationPath(folderPath, oldFileName);
-      if (fs.existsSync(oldPath)) {
+      if (fs.existsSync(oldPath) && oldPath !== fullPath) {
         fs.rmSync(oldPath, { force: true });
       }
     }

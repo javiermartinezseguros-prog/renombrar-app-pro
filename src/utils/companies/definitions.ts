@@ -298,15 +298,24 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
   {
     id: 'atm-seguros',
     displayName: 'ATM Compañía de Seguros S.A.',
-    // "el importe será debitado de cbu" is a confirmed-real fingerprint
-    // phrase, not company branding — needed because their newer "Tarjeta de
-    // Circulación" template (see the bare-ID fallback in customExtract
-    // below) bakes literally every label, including the company name, into
-    // a background image. pdf.js's text layer for that layout comes back
-    // with exactly 14 bare value strings and zero "ATM" text anywhere, so
-    // alias matching would otherwise fail on it completely — same problem,
-    // and same fix, as Mercantil Andina's cuponera below.
-    aliases: ['atm seguros', 'atm compañía de seguros', 'el importe será debitado de cbu'],
+    // "el importe será debitado de" and "código de pago electrónico" are
+    // confirmed-real fingerprint phrases, not company branding — needed
+    // because their newer "Tarjeta de Circulación"/"Cuponera" templates (see
+    // the bare-ID fallback in customExtract below) bake literally every
+    // label, including the company name, into a background image. pdf.js's
+    // text layer for that layout comes back with just 14 bare value strings
+    // and zero "ATM" text anywhere, so alias matching would otherwise fail
+    // on it completely — same problem, and same fix, as Mercantil Andina's
+    // cuponera further down. Deliberately NOT "...debitado de cbu" — the
+    // payment method printed after it varies (confirmed real: also seen
+    // "...debitado de VISA"), and the fixed suffix silently missed every
+    // card paid by anything other than CBU.
+    aliases: [
+      'atm seguros',
+      'atm compañía de seguros',
+      'el importe será debitado de',
+      'código de pago electrónico',
+    ],
     category: 'Generales',
     defaultRubro: 'Automotor',
     // Confirmed real fields on their (older) tarjeta de circulación: "Asegurado:",
@@ -347,6 +356,31 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
       if (tableMatch) {
         result.numeroPoliza = tableMatch[1];
         result.numeroEndoso = tableMatch[2];
+        return result;
+      }
+
+      // Confirmed real: their "Certificado de Cobertura" layout prints
+      // "Póliza :" with a space before the colon ("Póliza : 3 - 1110913") —
+      // none of the generic engine's policyLabels account for that extra
+      // space (they're all "póliza:"/"póliza n°" etc. with no gap), so it
+      // finds nothing here at all. The real correlativo is the second,
+      // longer segment (the first is just the 1-2 digit sucursal prefix).
+      const coberturaMatch = text.match(/p[oó]liza\s*:\s*\d+\s*-\s*(\d{5,10})/i);
+      if (coberturaMatch) {
+        result.numeroPoliza = coberturaMatch[1];
+        // Same layout mangles "Asegurado:"/"Dirección:" into a false
+        // header/value pairing — confirmed real: pdfText.ts's row-pairing
+        // treats the two short label cells "Asegurado" and "Dirección" that
+        // sit one above the other as a 2-column table header, and the two
+        // VALUE cells right next to each of them (on those exact same rows)
+        // as if they were a separate value row underneath — producing
+        // "Asegurado: Dirección | : NOMBRE: : direccion..." instead of the
+        // real "Asegurado: NOMBRE" / "Dirección: direccion" pair. The real
+        // name is always what sits right after the first "| :".
+        const nameMatch = text.match(/asegurado:\s*direcci[oó]n\s*\|\s*:\s*([^:]+):/i);
+        if (nameMatch) {
+          result.asegurado = nameMatch[1].trim();
+        }
         return result;
       }
 

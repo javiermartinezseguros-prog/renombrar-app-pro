@@ -7,8 +7,6 @@ import {
   Eye,
   FolderCog,
   DownloadCloud,
-  Sparkles,
-  RefreshCw,
 } from 'lucide-react';
 import { ThemeMode, TextZoom } from '../types';
 
@@ -19,9 +17,7 @@ interface HeaderProps {
   onTextZoomChange: (zoom: TextZoom) => void;
   onOpenFolderConfig: () => void;
   onExportAllZip: () => void;
-  onLoadSamples: () => void;
   totalPolicies: number;
-  hasApiKey?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,9 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onTextZoomChange,
   onOpenFolderConfig,
   onExportAllZip,
-  onLoadSamples,
   totalPolicies,
-  hasApiKey = true,
 }) => {
   return (
     <header
@@ -63,24 +57,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Vision Comfort Controls (Theme & Zoom) */}
         <div className="flex items-center flex-wrap gap-2">
-          {/* AI Status Badge */}
-          <div
-            id="ai-engine-status"
-            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${
-              hasApiKey
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-            }`}
-            title={
-              hasApiKey
-                ? 'Motor de Inteligencia Artificial Gemini 3.7 Flash conectado para lectura precisa de PDFs'
-                : 'Extractor heurístico activo'
-            }
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{hasApiKey ? 'IA Gemini 3.7 Activa' : 'Extractor Local'}</span>
-          </div>
-
           {/* Theme Selector (Descanso visual) */}
           <div
             id="theme-selector-group"
@@ -208,17 +184,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Exportar Renombrados</span>
             </button>
           )}
-
-          {/* Load Sample Data Button */}
-          <button
-            id="btn-load-sample-policies"
-            onClick={onLoadSamples}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Cargar pólizas de prueba (Federación Patronal, San Cristóbal, La Segunda, Allianz, etc.)"
-          >
-            <RefreshCw className="w-3 h-3" />
-            <span className="hidden xl:inline">Ejemplos</span>
-          </button>
         </div>
       </div>
     </header>

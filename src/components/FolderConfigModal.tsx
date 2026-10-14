@@ -1,31 +1,29 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FolderCog, FolderInput, FolderOutput, X, Check, Folder, Info } from 'lucide-react';
+import { FolderCog, FolderInput, FolderOutput, X, Check, Folder, Info, AlertTriangle } from 'lucide-react';
 import { FolderConfig } from '../types';
 import { isElectron, selectFolderNative } from '../utils/electronBridge';
+import { foldersOverlap, FOLDERS_OVERLAP_MESSAGE } from '../utils/paths';
 
 interface FolderConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   folderConfig: FolderConfig;
-  onSave: (config: FolderConfig, apiKey?: string) => void;
-  currentApiKey?: string;
+  onSave: (config: FolderConfig) => void;
 }
 
 // Split out from FolderConfigModal so it only mounts while the modal is open.
 // That lets <AnimatePresence> (in the wrapper below) actually see the mount/
 // unmount and play the `exit` animation, instead of the modal vanishing
 // instantly — and it means these fields are always freshly initialized from
-// the latest folderConfig/currentApiKey every time the modal reopens.
+// the latest folderConfig every time the modal reopens.
 const FolderConfigModalContent: React.FC<Omit<FolderConfigModalProps, 'isOpen'>> = ({
   onClose,
   folderConfig,
   onSave,
-  currentApiKey = '',
 }) => {
   const [origin, setOrigin] = useState(folderConfig.originPath);
   const [destination, setDestination] = useState(folderConfig.destinationPath);
-  const [apiKey, setApiKey] = useState(currentApiKey);
   const [autoProcess, setAutoProcess] = useState(folderConfig.autoProcessOnDrop);
   const [subfolders, setSubfolders] = useState(folderConfig.createSubfoldersByCompany);
 
@@ -58,14 +56,24 @@ const FolderConfigModalContent: React.FC<Omit<FolderConfigModalProps, 'isOpen'>>
     }
   };
 
+  const effectiveOrigin = origin.trim() || 'C:\\Seguros\\Entrada_PDFs';
+  const effectiveDestination = destination.trim() || 'C:\\Seguros\\Renombrados_Organizados';
+  // One folder inside the other (or the same one) makes the automatic scan
+  // pick up — and delete — its own output; main.cjs refuses it too.
+  const foldersConflict = foldersOverlap(effectiveOrigin, effectiveDestination);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (foldersConflict) return;
     onSave({
-      originPath: origin.trim() || 'C:\\Seguros\\Entrada_PDFs',
-      destinationPath: destination.trim() || 'C:\\Seguros\\Renombrados_Organizados',
+      // Spread first so settings this form doesn't edit (like the saved
+      // "automatic scan on" flag) are kept as they were.
+      ...folderConfig,
+      originPath: effectiveOrigin,
+      destinationPath: effectiveDestination,
       autoProcessOnDrop: autoProcess,
       createSubfoldersByCompany: subfolders,
-    }, apiKey.trim());
+    });
     onClose();
   };
 
@@ -105,25 +113,6 @@ const FolderConfigModalContent: React.FC<Omit<FolderConfigModalProps, 'isOpen'>>
 
         {/* Modal Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Gemini API Key */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-              🔑 Gemini API Key (Para extracción y lectura inteligente de PDFs)
-            </label>
-            <div className="relative">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Pega tu API Key de Gemini aquí (AIza...)"
-                className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Permite la lectura del contenido de pólizas directamente en tu aplicación local.
-            </p>
-          </div>
-
           {/* Origin Folder */}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -195,6 +184,16 @@ const FolderConfigModalContent: React.FC<Omit<FolderConfigModalProps, 'isOpen'>>
             )}
           </div>
 
+          {foldersConflict && (
+            <div
+              role="alert"
+              className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-xs flex items-start gap-2 text-red-800 dark:text-red-300"
+            >
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{FOLDERS_OVERLAP_MESSAGE}</span>
+            </div>
+          )}
+
           {/* Format Rule Reminder Box */}
           <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs space-y-1">
             <div className="flex items-center gap-1.5 font-bold text-blue-900 dark:text-blue-200">
@@ -247,7 +246,8 @@ const FolderConfigModalContent: React.FC<Omit<FolderConfigModalProps, 'isOpen'>>
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 transition-colors flex items-center gap-1.5"
+              disabled={foldersConflict}
+              className="px-5 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
             >
               <Check className="w-4 h-4" />
               <span>Guardar Configuración</span>

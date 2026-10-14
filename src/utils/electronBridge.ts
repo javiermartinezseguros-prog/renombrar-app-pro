@@ -19,12 +19,6 @@ export interface FolderPdfFile {
   path?: string;
 }
 
-export interface ReadFolderResult {
-  success: boolean;
-  files?: FolderPdfFile[];
-  error?: string;
-}
-
 export interface AppUpdatedInfo {
   version: string;
   notes: string[];
@@ -40,10 +34,13 @@ interface ElectronAPI {
     oldFileName?: string
   ) => Promise<SaveFileResult>;
   showInFolder: (filePath: string) => Promise<{ success: boolean; error?: string }>;
-  readFolderPdfs: (folderPath: string) => Promise<ReadFolderResult>;
-  startFolderWatch: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+  startFolderWatch: (originPath: string, destinationPath: string) => Promise<{ success: boolean; error?: string }>;
   stopFolderWatch: () => Promise<{ success: boolean }>;
   deleteOriginFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  backupSave: (id: string, dataUrl: string) => Promise<{ success: boolean; error?: string }>;
+  backupRead: (id: string) => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
+  backupDelete: (ids: string[]) => Promise<{ success: boolean; deleted?: number }>;
+  backupSweep: (keepIds: string[]) => Promise<{ success: boolean; deleted?: number; error?: string }>;
   onFolderWatchNewFile: (callback: (file: FolderPdfFile) => void) => () => void;
   onFolderWatchError: (callback: (message: string) => void) => () => void;
   onAppUpdated: (callback: (info: AppUpdatedInfo) => void) => () => void;
@@ -98,29 +95,17 @@ export async function showInFolder(filePath: string): Promise<{ success: boolean
 }
 
 /**
- * Reads every PDF directly inside a real, already-configured folder — lets
- * "Auto-Procesar Carpeta Origen" scan the folder the user actually set up
- * instead of prompting a picker on every run.
- */
-export async function readFolderPdfs(folderPath: string): Promise<ReadFolderResult> {
-  if (!window.electronAPI) {
-    return { success: false, error: 'Disponible solo en la app de escritorio.' };
-  }
-  return window.electronAPI.readFolderPdfs(folderPath);
-}
-
-/**
  * Starts a persistent watch on the origin folder: every PDF already there
  * plus every one that shows up afterward fires `onNewFile` — this is what
  * makes "Auto-Procesar Carpeta Origen" a standing watch instead of a
  * one-shot read. Only one watch runs at a time; starting a new one replaces
  * whatever was running.
  */
-export async function startFolderWatch(folderPath: string): Promise<{ success: boolean; error?: string }> {
+export async function startFolderWatch(originPath: string, destinationPath: string): Promise<{ success: boolean; error?: string }> {
   if (!window.electronAPI) {
     return { success: false, error: 'Disponible solo en la app de escritorio.' };
   }
-  return window.electronAPI.startFolderWatch(folderPath);
+  return window.electronAPI.startFolderWatch(originPath, destinationPath);
 }
 
 /** Stops the active folder watch, if any (desktop app only). */
@@ -161,4 +146,31 @@ export async function deleteOriginFile(filePath: string): Promise<{ success: boo
     return { success: false, error: 'Disponible solo en la app de escritorio.' };
   }
   return window.electronAPI.deleteOriginFile(filePath);
+}
+
+// ---- History PDF copies (see src/utils/policyFiles.ts) ----
+// A copy of each processed PDF is kept on disk, one file per history record,
+// until the record leaves the 7-day history. All of these are no-ops that
+// report failure outside the desktop app.
+
+export async function backupPolicyFile(id: string, dataUrl: string): Promise<boolean> {
+  if (!window.electronAPI) return false;
+  const result = await window.electronAPI.backupSave(id, dataUrl);
+  return result.success;
+}
+
+export async function readPolicyBackup(id: string): Promise<string | null> {
+  if (!window.electronAPI) return null;
+  const result = await window.electronAPI.backupRead(id);
+  return result.success && result.dataUrl ? result.dataUrl : null;
+}
+
+export async function deletePolicyBackups(ids: string[]): Promise<void> {
+  if (!window.electronAPI || ids.length === 0) return;
+  await window.electronAPI.backupDelete(ids);
+}
+
+/** Removes every stored copy whose id is not in `keepIds` (and is not brand new). */
+export async function sweepPolicyBackups(keepIds: string[]): Promise<void> {
+  await window.electronAPI?.backupSweep(keepIds);
 }

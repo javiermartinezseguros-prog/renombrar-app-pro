@@ -14,6 +14,7 @@ import {
   FileWarning,
 } from 'lucide-react';
 import { ExtractedPolicyData, DocumentType } from '../types';
+import { usePolicyFile } from '../utils/policyFiles';
 import { generateStandardFileName, formatPolicyNumber, formatEndorsementNumber, validateFileName } from '../utils/naming';
 
 interface ManualReviewModalProps {
@@ -69,6 +70,7 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
   onClose,
   onSave,
 }) => {
+  const { url: fileUrl, loading: fileLoading } = usePolicyFile(policy);
   const [compania, setCompania] = useState(policy.compania || '');
   const [asegurado, setAsegurado] = useState(policy.asegurado || '');
   const [numeroPoliza, setNumeroPoliza] = useState(policy.numeroPoliza || '');
@@ -178,9 +180,9 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
               <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                 Documento Original
               </span>
-              {policy.fileDataUrl && (
+              {fileUrl && (
                 <a
-                  href={policy.fileDataUrl}
+                  href={fileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
@@ -191,10 +193,14 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
               )}
             </div>
             <div className="flex-1 min-h-0">
-              {policy.fileDataUrl ? (
+              {fileLoading ? (
+                <div className="w-full h-full flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
+                  Cargando el PDF…
+                </div>
+              ) : fileUrl ? (
                 <iframe
                   title={`Vista previa de ${policy.originalFileName}`}
-                  src={policy.fileDataUrl}
+                  src={fileUrl}
                   className="w-full h-full border-0"
                 />
               ) : (

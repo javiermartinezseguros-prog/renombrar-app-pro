@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, FileWarning, ExternalLink, ScanSearch } from 'lucide-react';
 import { ExtractedPolicyData } from '../types';
+import { usePolicyFile } from '../utils/policyFiles';
 
 interface DocumentPreviewModalProps {
   isOpen: boolean;
@@ -20,7 +21,8 @@ interface DocumentPreviewModalContentProps {
 // <AnimatePresence> can play the exit animation instead of the modal
 // vanishing instantly (same pattern as the other modals in this app).
 const DocumentPreviewModalContent: React.FC<DocumentPreviewModalContentProps> = ({ policy, onClose }) => {
-  const hasFile = Boolean(policy.fileDataUrl);
+  const { url: fileUrl, loading } = usePolicyFile(policy);
+  const hasFile = Boolean(fileUrl);
 
   return (
     <div
@@ -51,7 +53,7 @@ const DocumentPreviewModalContent: React.FC<DocumentPreviewModalContentProps> = 
           <div className="flex items-center gap-1.5 shrink-0">
             {hasFile && (
               <a
-                href={policy.fileDataUrl}
+                href={fileUrl ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -71,8 +73,12 @@ const DocumentPreviewModalContent: React.FC<DocumentPreviewModalContentProps> = 
 
         {/* Body: embedded PDF or fallback */}
         <div className="flex-1 bg-slate-200 dark:bg-slate-950 min-h-0">
-          {hasFile ? (
-            <iframe title={`Vista previa de ${policy.originalFileName}`} src={policy.fileDataUrl} className="w-full h-full border-0" />
+          {loading ? (
+            <div className="w-full h-full flex items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+              Cargando el PDF…
+            </div>
+          ) : hasFile ? (
+            <iframe title={`Vista previa de ${policy.originalFileName}`} src={fileUrl ?? undefined} className="w-full h-full border-0" />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-6">
               <FileWarning className="w-8 h-8 text-slate-400" />
@@ -80,8 +86,8 @@ const DocumentPreviewModalContent: React.FC<DocumentPreviewModalContentProps> = 
                 No hay un archivo PDF disponible para previsualizar
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
-                Este registro se cargó sin el contenido del PDF (por ejemplo, un ejemplo de muestra), así que no
-                hay nada que mostrar aquí.
+                La copia del PDF se conserva solo mientras el registro está en el historial (7 días) y no se
+                guarda entre sesiones al usar la versión web. Si lo necesitás, está en la carpeta de destino.
               </p>
             </div>
           )}

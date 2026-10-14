@@ -15,8 +15,9 @@ export interface ExtractedPolicyData {
   id: string;
   originalFileName: string;
   fileSize?: number;
-  fileDataUrl?: string; // For previewing/downloading
-  
+  // The PDF itself is NOT part of the record: it is kept in its own file
+  // (see utils/policyFiles.ts) and removed together with the record.
+
   // Core required fields
   compania: string;
   asegurado: string;
@@ -42,7 +43,11 @@ export interface ExtractedPolicyData {
   finalFileName: string; // Edited or approved
   isCustomRenamed: boolean;
   status: ProcessingStatus;
-  processedAt: string;
+  processedAt: string; // Display text (es-AR)
+  // When it was processed, in epoch milliseconds — what the 7-day history
+  // limit is measured against (see utils/history.ts). Optional only because
+  // records saved by older versions don't have it yet.
+  processedAtMs?: number;
   originPath?: string;
   destinationPath?: string;
   // True once the renamed PDF has actually been written to destinationPath

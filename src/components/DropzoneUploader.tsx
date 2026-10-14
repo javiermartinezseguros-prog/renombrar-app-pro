@@ -3,11 +3,9 @@ import {
   UploadCloud,
   FileText,
   FolderUp,
-  Sparkles,
   Loader2,
   FileCode,
 } from 'lucide-react';
-import { DocumentType } from '../types';
 
 interface DropzoneUploaderProps {
   onFilesSelected: (files: File[]) => void;
@@ -17,14 +15,12 @@ interface DropzoneUploaderProps {
     total: number;
     currentFileName?: string;
   };
-  onLoadSamples: () => void;
 }
 
 export const DropzoneUploader: React.FC<DropzoneUploaderProps> = ({
   onFilesSelected,
   isProcessing,
   processingProgress,
-  onLoadSamples,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,20 +93,6 @@ export const DropzoneUploader: React.FC<DropzoneUploaderProps> = ({
               <span>.pdf</span>
             </div>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
-            ¿No tienes archivos a mano?
-          </span>
-          <button
-            id="btn-sample-loader-dropzone"
-            onClick={onLoadSamples}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/70 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 shadow-2xs transition-colors"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Cargar Pólizas de Ejemplo</span>
-          </button>
         </div>
       </div>
 

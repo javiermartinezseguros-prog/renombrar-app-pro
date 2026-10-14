@@ -38,10 +38,12 @@ export function formatPolicyNumber(rawPolicy: string | number | undefined): stri
  */
 export function formatEndorsementNumber(rawEndorsement: string | number | undefined): string {
   if (!rawEndorsement) return '00';
-  const cleanStr = String(rawEndorsement).replace(/[^0-9]/g, '').trim();
-  
-  if (!cleanStr || cleanStr === '0') return '00';
-  return cleanStr.padStart(2, '0').slice(-2);
+  // Leading zeros carry no meaning (Intégrity prints "00006" for endoso 6),
+  // so drop them first and then pad to the 2-digit minimum. A number with
+  // three or more real digits keeps all of them: cutting it down to the last
+  // two ("100" -> "00") made two different endorsements share one filename.
+  const significant = String(rawEndorsement).replace(/[^0-9]/g, '').replace(/^0+/, '');
+  return significant ? significant.padStart(2, '0') : '00';
 }
 
 /**
@@ -84,7 +86,9 @@ export function validateFileName(fileName: string): { isValid: boolean; warning?
   
   // Policy segment length is variable on purpose (see formatPolicyNumber):
   // it's at least 9 digits, but some insurers' real numbers run longer.
-  const pattern = /^PZA-[0-9A-Za-z]{9,}-\d{2}(-(Tarjeta de RC|Cuponera|Cobertura))?\.pdf$/i;
+  // The optional " (2)", " (3)"... is what the save step appends when two
+  // documents end up with the same name, so it is a valid standard name too.
+  const pattern = /^PZA-[0-9A-Za-z]{9,}-\d{2,}(-(Tarjeta de RC|Cuponera|Cobertura))?( \(\d+\))?\.pdf$/i;
   if (pattern.test(fileName)) {
     return { isValid: true };
   }

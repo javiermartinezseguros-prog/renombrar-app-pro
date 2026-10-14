@@ -9,8 +9,9 @@ coverage/
 .DS_Store
 *.log
 .env*
-!.env.example
 .claude/
+.agents/
+graphify-out/
 scratch-*.mts
 scratch-*.ts
 audit_before.json

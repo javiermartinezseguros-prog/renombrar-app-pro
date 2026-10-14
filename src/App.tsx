@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import JSZip from 'jszip';
 import { Header } from './components/Header';
 import { FolderStatusBar } from './components/FolderStatusBar';
 import { DropzoneUploader } from './components/DropzoneUploader';
@@ -18,7 +17,6 @@ import {
   TextZoom,
   DocumentType,
 } from './types';
-import { SAMPLE_POLICIES } from './data/samplePolicies';
 import { generateStandardFileName, formatPolicyNumber, formatEndorsementNumber } from './utils/naming';
 import { extractPolicyData } from './utils/policyExtractor';
 import {
@@ -34,32 +32,41 @@ import {
   FolderPdfFile,
   AppUpdatedInfo,
 } from './utils/electronBridge';
+import {
+  HISTORY_RETENTION_DAYS,
+  HISTORY_STORAGE_KEY,
+  LoadedHistory,
+  loadHistory,
+  splitByRetention,
+} from './utils/history';
+import {
+  deletePolicyFiles,
+  getPolicyFileDataUrl,
+  storePolicyFile,
+  sweepPolicyFiles,
+} from './utils/policyFiles';
+import { buildPoliciesZip } from './utils/export';
 
-const STORAGE_KEY_POLICIES = 'polizamaster_history_v1';
 const STORAGE_KEY_FOLDERS = 'polizamaster_folder_config_v1';
 const STORAGE_KEY_THEME = 'polizamaster_theme_mode_v1';
 const STORAGE_KEY_ZOOM = 'polizamaster_text_zoom_v1';
-const STORAGE_KEY_API_KEY = 'polizamaster_gemini_api_key_v1';
+// Older versions kept an API key here; nothing reads it any more, so it is
+// removed on launch instead of staying behind in plain text.
+const LEGACY_STORAGE_KEY_API_KEY = 'polizamaster_gemini_api_key_v1';
+
+// How often a long-running session re-checks which records have passed the
+// 7-day limit (the check also runs on every launch).
+const HISTORY_PURGE_INTERVAL_MS = 60 * 60 * 1000;
 
 export function App() {
   // 1. Persistence & Settings State
-  const [apiKey, setApiKey] = useState<string>(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY_API_KEY) || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
-    } catch {
-      return '';
-    }
-  });
+  const initialHistory = useRef<LoadedHistory | null>(null);
+  if (initialHistory.current === null) initialHistory.current = loadHistory(localStorage);
 
-  const [policies, setPolicies] = useState<ExtractedPolicyData[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_POLICIES);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.warn('Error loading policies from localStorage:', e);
-    }
-    return SAMPLE_POLICIES;
-  });
+  const [policies, setPolicies] = useState<ExtractedPolicyData[]>(() => initialHistory.current!.policies);
+  // Always the latest list, for code that runs outside a render (timers).
+  const policiesRef = useRef(policies);
+  policiesRef.current = policies;
 
   const [folderConfig, setFolderConfig] = useState<FolderConfig>(() => {
     try {
@@ -123,11 +130,15 @@ export function App() {
     return onAppUpdated((info) => setAppUpdateNotice(info));
   }, []);
 
-  // Save to localStorage
+  // Save to localStorage. The history holds only text fields (the PDFs live in
+  // their own files), so it stays far below the browser's storage quota; if a
+  // write fails anyway, say so instead of silently freezing the saved history.
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_POLICIES, JSON.stringify(policies));
-    } catch (e) {}
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(policies));
+    } catch (e) {
+      console.warn('No se pudo guardar el historial en localStorage:', e);
+    }
   }, [policies]);
 
   useEffect(() => {
@@ -135,6 +146,34 @@ export function App() {
       localStorage.setItem(STORAGE_KEY_FOLDERS, JSON.stringify(folderConfig));
     } catch (e) {}
   }, [folderConfig]);
+
+  // History retention: nothing older than HISTORY_RETENTION_DAYS is kept —
+  // neither the record nor the copy of its PDF. On launch: first move any
+  // PDF an older version embedded in a record into its own file, delete the
+  // copies of the records that expired while the app was closed, and sweep
+  // any stray copy no record claims. While the app stays open: re-check
+  // every hour.
+  const purgeExpiredHistory = () => {
+    const { expired } = splitByRetention(policiesRef.current);
+    if (expired.length === 0) return;
+    setPolicies((prev) => splitByRetention(prev).kept);
+    void deletePolicyFiles(expired.map((policy) => policy.id));
+  };
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY_API_KEY);
+    } catch (e) {}
+    const { legacyFiles, expiredIds, policies: loaded } = initialHistory.current!;
+    void (async () => {
+      for (const [id, dataUrl] of legacyFiles) await storePolicyFile(id, dataUrl);
+      await deletePolicyFiles(expiredIds);
+      await sweepPolicyFiles(loaded.map((policy) => policy.id));
+    })();
+    const timer = setInterval(purgeExpiredHistory, HISTORY_PURGE_INTERVAL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Resumes the origin-folder watch on launch if it was left on before the
   // app was last closed — without this, the watch always started OFF on
@@ -147,7 +186,7 @@ export function App() {
   useEffect(() => {
     if (!isElectron() || !folderConfig.autoScanEnabled) return;
     if (!folderConfig.originPath || !folderConfig.destinationPath) return;
-    startFolderWatch(folderConfig.originPath).then((result) => {
+    startFolderWatch(folderConfig.originPath, folderConfig.destinationPath).then((result) => {
       if (result.success) {
         setIsWatchingFolder(true);
         addToast(
@@ -187,13 +226,6 @@ export function App() {
       root.style.fontSize = '100%'; // 16px default
     }
   }, [textZoom]);
-
-  useEffect(() => {
-    try {
-      if (apiKey) localStorage.setItem(STORAGE_KEY_API_KEY, apiKey);
-      else localStorage.removeItem(STORAGE_KEY_API_KEY);
-    } catch (e) {}
-  }, [apiKey]);
 
   // System theme listener & Theme applier
   useEffect(() => {
@@ -258,9 +290,10 @@ export function App() {
           currentFileName: file.name,
         });
 
+        let base64: string | undefined;
         try {
-          const base64 = await fileToBase64(file);
-          const result = await extractPolicyData(file, base64, apiKey);
+          base64 = await fileToBase64(file);
+          const result = await extractPolicyData(file);
           const extracted = result.data || {};
 
           const docType = (extracted.tipoDocumento || 'Póliza') as DocumentType;
@@ -283,11 +316,11 @@ export function App() {
             extracted.asegurado === 'Asegurado por Identificar' ||
             !extracted.numeroPoliza;
 
+          const processedAtMs = Date.now();
           const newRecord: ExtractedPolicyData = {
-            id: `file-${Date.now()}-${currentIndex}-${Math.random().toString(36).substring(2, 7)}`,
+            id: `file-${processedAtMs}-${currentIndex}-${Math.random().toString(36).substring(2, 7)}`,
             originalFileName: file.name,
             fileSize: file.size,
-            fileDataUrl: base64,
             compania: extracted.compania || 'Compañía de Seguros',
             asegurado: (extracted.asegurado || 'ASEGURADO NO IDENTIFICADO').toUpperCase(),
             numeroPoliza: extracted.numeroPoliza || '000000000',
@@ -300,24 +333,28 @@ export function App() {
             vehiculo: extracted.vehiculo,
             premioTotal: extracted.premioTotal,
             moneda: extracted.moneda || 'ARS',
-            formaPago: extracted.formaPago,
-            cuotas: extracted.cuotas,
             observaciones: extracted.observaciones || `Procesado mediante ${result.source}`,
             confianza: isLowConfidence ? 'Baja' : (extracted.confianza || 'Alta'),
             suggestedFileName: standardName,
             finalFileName: standardName,
             isCustomRenamed: false,
             status: isLowConfidence ? 'Revisión Requerida' : 'Completado',
-            processedAt: new Date().toLocaleString('es-AR', {
+            processedAt: new Date(processedAtMs).toLocaleString('es-AR', {
               year: 'numeric',
               month: '2-digit',
               day: '2-digit',
               hour: '2-digit',
               minute: '2-digit',
             }),
+            processedAtMs,
             originPath: `${folderConfig.originPath}\\${file.name}`,
             destinationPath: `${folderConfig.destinationPath}\\${standardName}`,
           };
+
+          // Keep a copy of the PDF for the history (preview, download, manual
+          // correction) — stored before anything else touches the file, and
+          // deleted together with this record once it leaves the history.
+          await storePolicyFile(newRecord.id, base64);
 
           // If destination directory handle is available (from the folder-picker
           // scan flow), write the renamed file directly there.
@@ -358,6 +395,11 @@ export function App() {
               }
             } else {
               console.warn(`Could not auto-save "${standardName}" to destination folder:`, saveResult.error);
+              addToast(
+                'error',
+                `No se pudo guardar "${standardName}" en destino`,
+                saveResult.error || 'Verificá que la carpeta de destino sea válida y tengas permisos de escritura.'
+              );
             }
           }
 
@@ -365,8 +407,9 @@ export function App() {
         } catch (err: any) {
           console.error(`Error processing file ${file.name}:`, err);
           const standardName = generateStandardFileName('000000000', '00', 'Póliza');
-          results[currentIndex] = {
-            id: `file-err-${Date.now()}-${currentIndex}`,
+          const processedAtMs = Date.now();
+          const errorRecord: ExtractedPolicyData = {
+            id: `file-err-${processedAtMs}-${currentIndex}`,
             originalFileName: file.name,
             fileSize: file.size,
             compania: 'Aseguradora por Identificar',
@@ -382,10 +425,15 @@ export function App() {
             finalFileName: standardName,
             isCustomRenamed: false,
             status: 'Revisión Requerida',
-            processedAt: new Date().toLocaleString('es-AR'),
+            processedAt: new Date(processedAtMs).toLocaleString('es-AR'),
+            processedAtMs,
             originPath: `${folderConfig.originPath}\\${file.name}`,
             destinationPath: `${folderConfig.destinationPath}\\${standardName}`,
           };
+          // Whatever could be read of the file is still kept for the history,
+          // so the manual review can show it.
+          if (base64) await storePolicyFile(errorRecord.id, base64).catch(() => {});
+          results[currentIndex] = errorRecord;
         } finally {
           completedCount++;
         }
@@ -439,8 +487,8 @@ export function App() {
   // processFilesConcurrent independently with no queue shared across calls,
   // unlike the drag-and-drop batch path (which caps at 4 workers). Left
   // unthrottled, a folder with 100+ pre-existing PDFs firing 'add' all at
-  // once on watch start/resume would launch 100+ concurrent PDF.js/OCR/
-  // Gemini calls simultaneously.
+  // once on watch start/resume would launch 100+ concurrent PDF.js/OCR
+  // calls simultaneously.
   const WATCH_CONCURRENCY = 4;
   const watchQueueRef = useRef<{ running: number; waiters: (() => void)[] }>({ running: 0, waiters: [] });
   const runWithWatchLimit = async (task: () => Promise<void>) => {
@@ -498,7 +546,7 @@ export function App() {
   // those files were silently dropped. Subscribing here, on mount, well
   // before the watch can possibly start (whether via the toggle button or
   // the launch-resume effect below), closes that gap entirely. Re-subscribes
-  // whenever folderConfig/apiKey change so handleWatchedFile's closure (via
+  // whenever folderConfig changes so handleWatchedFile's closure (via
   // processFilesConcurrent) always sees current values.
   useEffect(() => {
     if (!isElectron()) return;
@@ -513,7 +561,7 @@ export function App() {
       unsubscribeError();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folderConfig, apiKey]);
+  }, [folderConfig]);
 
   // Toggles a persistent watch on the origin folder (desktop app only):
   // every PDF already there when it starts, plus every one dropped in
@@ -549,7 +597,7 @@ export function App() {
         return;
       }
 
-      const result = await startFolderWatch(folderConfig.originPath);
+      const result = await startFolderWatch(folderConfig.originPath, folderConfig.destinationPath);
       if (!result.success) {
         addToast(
           'error',
@@ -669,14 +717,31 @@ export function App() {
     });
   };
 
-  // Load predefined sample policies
-  const handleLoadSamples = () => {
-    setPolicies(SAMPLE_POLICIES);
-    addToast(
-      'info',
-      'Pólizas de Ejemplo Cargadas',
-      'Se restauraron 5 ejemplos reales de Federación Patronal, San Cristóbal, La Segunda, Allianz y Sancor.'
-    );
+  // Saves new folder settings. A watch that is already running keeps using the
+  // folders it was started with, so it is restarted on the new ones — leaving
+  // it on the old origin while the destination moved is how an output folder
+  // ends up inside the folder being watched.
+  const handleSaveFolderConfig = async (newConfig: FolderConfig) => {
+    const foldersChanged =
+      newConfig.originPath !== folderConfig.originPath ||
+      newConfig.destinationPath !== folderConfig.destinationPath;
+    setFolderConfig(newConfig);
+    addToast('success', 'Configuración Guardada', 'Se actualizaron las rutas de las carpetas.');
+
+    if (!foldersChanged || !isElectron() || !isWatchingFolder) return;
+    const result = await startFolderWatch(newConfig.originPath, newConfig.destinationPath);
+    if (result.success) {
+      addToast('info', 'Escaneo Automático Reiniciado', `Ahora vigila "${newConfig.originPath}".`);
+    } else {
+      await stopFolderWatch();
+      setIsWatchingFolder(false);
+      setFolderConfig((prev) => ({ ...prev, autoScanEnabled: false }));
+      addToast(
+        'error',
+        'El escaneo automático quedó detenido',
+        result.error || 'No se pudo vigilar la nueva carpeta de origen.'
+      );
+    }
   };
 
   // Save manual edit — writes the corrected PDF straight to the destination
@@ -697,21 +762,30 @@ export function App() {
       confianza: 'Alta',
     };
 
-    if (isElectron() && folderConfig.destinationPath && verifiedPolicy.fileDataUrl) {
-      const saveResult = await saveFileToDestination(
-        folderConfig.destinationPath,
-        verifiedPolicy.finalFileName,
-        verifiedPolicy.fileDataUrl,
-        previousFileName
-      );
-      if (saveResult.success) {
-        verifiedPolicy = { ...verifiedPolicy, savedToDisk: true, destinationPath: saveResult.path };
-      } else {
+    if (isElectron() && folderConfig.destinationPath) {
+      const fileDataUrl = await getPolicyFileDataUrl(verifiedPolicy.id);
+      if (!fileDataUrl) {
         addToast(
           'error',
-          'No se pudo guardar en la carpeta de destino',
-          saveResult.error || 'Verificá que la carpeta de destino sea válida y tengas permisos de escritura.'
+          'No se pudo regrabar el PDF en destino',
+          'La copia del PDF ya no está disponible. Se guardaron los datos corregidos, pero el archivo en la carpeta de destino quedó como estaba.'
         );
+      } else {
+        const saveResult = await saveFileToDestination(
+          folderConfig.destinationPath,
+          verifiedPolicy.finalFileName,
+          fileDataUrl,
+          previousFileName
+        );
+        if (saveResult.success) {
+          verifiedPolicy = { ...verifiedPolicy, savedToDisk: true, destinationPath: saveResult.path };
+        } else {
+          addToast(
+            'error',
+            'No se pudo guardar en la carpeta de destino',
+            saveResult.error || 'Verificá que la carpeta de destino sea válida y tengas permisos de escritura.'
+          );
+        }
       }
     }
 
@@ -728,15 +802,17 @@ export function App() {
     );
   };
 
-  // Delete policy from history
+  // Delete policy from history (and the copy of its PDF that went with it)
   const handleDeletePolicy = (id: string) => {
     setPolicies((prev) => prev.filter((p) => p.id !== id));
+    void deletePolicyFiles([id]);
     addToast('info', 'Documento Eliminado', 'Se quitó el registro del historial.');
   };
 
   // Batch delete
   const handleBatchDelete = (ids: string[]) => {
     setPolicies((prev) => prev.filter((p) => !ids.includes(p.id)));
+    void deletePolicyFiles(ids);
     addToast('info', 'Registros Eliminados', `Se eliminaron ${ids.length} documentos.`);
   };
 
@@ -759,43 +835,23 @@ export function App() {
   };
 
   // Download Single PDF
-  const handleDownloadSingle = (policy: ExtractedPolicyData) => {
+  const handleDownloadSingle = async (policy: ExtractedPolicyData) => {
     try {
-      if (policy.fileDataUrl) {
-        // Real uploaded file
-        const link = document.createElement('a');
-        link.href = policy.fileDataUrl;
-        link.download = policy.finalFileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } else {
-        // Generate simulated PDF/text certificate
-        const content = `PÓLIZA DE SEGURO RENOMBRADA
-============================================
-Nombre de Archivo Final: ${policy.finalFileName}
-Compañía: ${policy.compania}
-Asegurado: ${policy.asegurado}
-N° Póliza: ${policy.numeroPolizaPadded}
-N° Endoso: ${policy.numeroEndoso}
-Tipo de Documento: ${policy.tipoDocumento}
-Rubro / Sección: ${policy.rubro}
-Vigencia: ${policy.vigenciaDesde || 'N/D'} - ${policy.vigenciaHasta || 'N/D'}
-${policy.vehiculo ? `Vehículo: ${policy.vehiculo.marca} ${policy.vehiculo.modelo} (Patente: ${policy.vehiculo.patente})` : ''}
-Premio Total: ${policy.premioTotal || 'N/D'}
-============================================
-Generado automáticamente por PólizaMaster Desktop
-`;
-        const blob = new Blob([content], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = policy.finalFileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+      const fileDataUrl = await getPolicyFileDataUrl(policy.id);
+      if (!fileDataUrl) {
+        addToast(
+          'error',
+          'El PDF ya no está disponible',
+          'La copia del PDF solo se conserva mientras el registro está en el historial. Buscalo en la carpeta de destino.'
+        );
+        return;
       }
+      const link = document.createElement('a');
+      link.href = fileDataUrl;
+      link.download = policy.finalFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
 
       addToast('success', 'Descargando Archivo', policy.finalFileName);
     } catch (e: any) {
@@ -808,44 +864,13 @@ Generado automáticamente por PólizaMaster Desktop
     if (policies.length === 0) return;
 
     try {
-      const zip = new JSZip();
-      const folderName = 'Polizas_Renombradas_Export';
-      const rootFolder = zip.folder(folderName) || zip;
+      const { blob, included, missing } = await buildPoliciesZip(
+        policies,
+        folderConfig.createSubfoldersByCompany,
+        getPolicyFileDataUrl
+      );
 
-      for (const policy of policies) {
-        const fileContent = policy.fileDataUrl
-          ? policy.fileDataUrl.split(',')[1] || ''
-          : `PÓLIZA DE SEGURO\nCompañía: ${policy.compania}\nAsegurado: ${policy.asegurado}\nPóliza: ${policy.numeroPolizaPadded}\nEndoso: ${policy.numeroEndoso}\nTipo: ${policy.tipoDocumento}\nArchivo: ${policy.finalFileName}`;
-
-        if (folderConfig.createSubfoldersByCompany && policy.compania) {
-          const compFolder = rootFolder.folder(policy.compania.replace(/[/\\?%*:|"<>]/g, '_')) || rootFolder;
-          if (policy.fileDataUrl) {
-            compFolder.file(policy.finalFileName, fileContent, { base64: true });
-          } else {
-            compFolder.file(policy.finalFileName, fileContent);
-          }
-        } else {
-          if (policy.fileDataUrl) {
-            rootFolder.file(policy.finalFileName, fileContent, { base64: true });
-          } else {
-            rootFolder.file(policy.finalFileName, fileContent);
-          }
-        }
-      }
-
-      // Add a summary manifest CSV
-      const csvHeader = 'Nombre Original,Nombre Renombrado,Compania,Asegurado,Numero Poliza,Numero Endoso,Tipo Documento,Rubro\n';
-      const csvRows = policies
-        .map(
-          (p) =>
-            `"${p.originalFileName}","${p.finalFileName}","${p.compania}","${p.asegurado}","${p.numeroPolizaPadded}","${p.numeroEndoso}","${p.tipoDocumento}","${p.rubro}"`
-        )
-        .join('\n');
-
-      rootFolder.file('indice_polizas_renombradas.csv', '\uFEFF' + csvHeader + csvRows);
-
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const downloadUrl = URL.createObjectURL(zipBlob);
+      const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = `Polizas_Renombradas_${new Date().toISOString().slice(0, 10)}.zip`;
@@ -857,7 +882,9 @@ Generado automáticamente por PólizaMaster Desktop
       addToast(
         'success',
         '¡Exportación ZIP Exitosa!',
-        `Se descargaron ${policies.length} archivos con el formato oficial.`
+        missing === 0
+          ? `Se descargaron ${included} archivos con el formato oficial.`
+          : `Se descargaron ${included} archivos. ${missing} registro(s) figuran solo en el índice CSV porque su PDF ya no está disponible.`
       );
     } catch (e: any) {
       console.error('Error generating zip:', e);
@@ -884,9 +911,7 @@ Generado automáticamente por PólizaMaster Desktop
         onTextZoomChange={setTextZoom}
         onOpenFolderConfig={() => setIsFolderConfigOpen(true)}
         onExportAllZip={handleExportAllZip}
-        onLoadSamples={handleLoadSamples}
         totalPolicies={policies.length}
-        hasApiKey={Boolean(apiKey)}
       />
 
       {/* 2. Permanent Folder Paths Status Bar */}
@@ -907,7 +932,6 @@ Generado automáticamente por PólizaMaster Desktop
           onFilesSelected={handleFilesSelected}
           isProcessing={isProcessing}
           processingProgress={processingProgress}
-          onLoadSamples={handleLoadSamples}
         />
 
         {/* Stats & Quick Filter Cards */}
@@ -942,6 +966,7 @@ Generado automáticamente por PólizaMaster Desktop
             <span>Formato activo: <code className="font-mono text-blue-600 dark:text-blue-400">PZA-000000000-00[-Tipo].pdf</code></span>
           </div>
           <div className="flex items-center gap-4 text-[11px]">
+            <span>Historial: últimos {HISTORY_RETENTION_DAYS} días</span>
             <span>Total cargados: <strong className="text-slate-800 dark:text-white">{policies.length}</strong></span>
             <span>Atajos: <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border font-mono">Doble Clic</kbd> Ver Ficha</span>
           </div>
@@ -953,14 +978,7 @@ Generado automáticamente por PólizaMaster Desktop
         isOpen={isFolderConfigOpen}
         onClose={() => setIsFolderConfigOpen(false)}
         folderConfig={folderConfig}
-        currentApiKey={apiKey}
-        onSave={(newConfig, newApiKey) => {
-          setFolderConfig(newConfig);
-          if (newApiKey !== undefined) {
-            setApiKey(newApiKey);
-          }
-          addToast('success', 'Configuración Guardada', 'Se actualizaron las rutas y clave API.');
-        }}
+        onSave={handleSaveFolderConfig}
       />
 
       <ManualReviewModal

@@ -106,7 +106,8 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // "mercantil"/"andina" do not appear anywhere in its extractable text),
     // so detection there relies on fingerprint phrases confirmed unique to
     // their payment-coupon system instead of the company name itself.
-    aliases: ['mercantil andina', 'la mercantil andina', 'pagomiscuentas', 'código de link pagos', 'codigo de link pagos'],
+    aliases: ['mercantil andina', 'la mercantil andina'],
+    fingerprints: ['pagomiscuentas', 'código de link pagos', 'codigo de link pagos'],
     category: 'Generales',
     // Confirmed real fields across Condiciones Particulares (Suplemento
     // Adicional) / Certificado de Cobertura: "POLIZA:"/"POLIZA Nº", "RAMA:"
@@ -315,7 +316,8 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // payment coupon's shorter "PAGO ELECTRÓNICO" heading — company
     // detection doesn't need to tell those two documents apart, only
     // tipoDocumento does (see customExtract).
-    aliases: ['atm seguros', 'atm compañía de seguros', 'el importe será debitado de', 'pago electrónico'],
+    aliases: ['atm seguros', 'atm compañía de seguros'],
+    fingerprints: ['el importe será debitado de', 'pago electrónico'],
     category: 'Generales',
     defaultRubro: 'Automotor',
     // Confirmed real fields on their (older) tarjeta de circulación: "Asegurado:",
@@ -604,7 +606,9 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
   {
     id: 'rivadavia',
     displayName: 'Rivadavia Seguros',
-    aliases: ['rivadavia'],
+    // "Rivadavia" alone is also a street name (Av. Rivadavia) — it turns up in
+    // addresses of any insurer's documents — so only the full company name counts.
+    aliases: ['rivadavia seguros', 'seguros rivadavia'],
     category: 'Generales',
   },
   {
@@ -675,13 +679,16 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
   {
     id: 'holando-sudamericana',
     displayName: 'Holando Sudamericana Compañía de Seguros',
-    aliases: ['holando'],
+    // "Holando" alone is also the cattle breed (Holando-Argentino), common in
+    // rural policies from any insurer.
+    aliases: ['holando sudamericana'],
     category: 'Generales',
   },
   {
     id: 'caruso-seguros',
     displayName: 'Caruso Compañía Argentina de Seguros S.A.',
-    aliases: ['caruso'],
+    // "Caruso" alone is a common surname, so it can appear as an insured's name.
+    aliases: ['caruso seguros', 'caruso compañía', 'caruso compania'],
     category: 'Generales',
   },
   {

@@ -1,8 +1,54 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const { autoUpdater } = require('electron-updater');
 const chokidar = require('chokidar');
+
+// ---- Path helpers shared by the folder-watch / delete / save handlers ----
+
+// Resolves symlinks/junctions on the part of `p` that already exists (the
+// destination folder may not have been created yet), so two folders that
+// look different but are really the same place compare as equal.
+function realish(p) {
+  const original = path.resolve(String(p));
+  let current = original;
+  const rest = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(current), ...rest.reverse());
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return original;
+      rest.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function comparable(p) {
+  const resolved = realish(p);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+// True when `child` is `parent` itself or anywhere below it.
+function isSameOrInside(child, parent) {
+  const c = comparable(child);
+  const p = comparable(parent);
+  return c === p || c.startsWith(p.endsWith(path.sep) ? p : p + path.sep);
+}
+
+// Origin and destination must be two separate trees: if the destination sits
+// inside the origin (or the other way around) the live watch picks up the
+// app's own output as a "new" file, re-processes it, and then deletes it as if
+// it were an original.
+function foldersOverlap(a, b) {
+  return isSameOrInside(a, b) || isSameOrInside(b, a);
+}
+
+const FOLDERS_OVERLAP_MESSAGE =
+  'La carpeta de origen y la de destino no pueden estar una dentro de la otra (ni ser la misma): ' +
+  'el escaneo automático volvería a procesar —y borraría— los archivos ya renombrados.';
 
 // Path of the bundled per-version release notes (see release-notes.json —
 // added to build.files in package.json so it ships inside app.asar). One
@@ -86,6 +132,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.cjs'),
       // Enables Chromium's built-in PDF viewer so <iframe>/<embed> pointed at
       // a PDF (data: URL or file) renders inline instead of triggering a
@@ -117,22 +164,48 @@ function createWindow() {
     console.log(`[Consola Render] ${event.message}`);
   });
 
+  const devServerUrl = 'http://127.0.0.1:3000';
   if (fs.existsSync(distIndexPath)) {
     win.loadFile(distIndexPath);
   } else {
-    // Si aún no se compiló dist, intenta cargar desde el servidor local si está corriendo
-    win.loadURL('http://localhost:3000').catch(() => {
-      win.loadFile(distIndexPath);
+    // Si aún no se compiló dist, intenta cargar desde el servidor de desarrollo (npm run dev)
+    win.loadURL(devServerUrl).catch((err) => {
+      console.error(`[Electron Error] No hay dist/ ni servidor de desarrollo en ${devServerUrl}:`, err);
     });
   }
 
-  // Permite abrir DevTools con Ctrl+Shift+I o F12
-  win.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
-      win.webContents.toggleDevTools();
+  // The app never needs to leave its own page. Block every navigation away
+  // from it, and every window.open except the in-app "open this PDF" link
+  // (a data: PDF) — which gets the same locked-down web preferences.
+  const appUrlPrefixes = [pathToFileURL(distIndexPath).href, devServerUrl];
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!appUrlPrefixes.some((prefix) => url.startsWith(prefix))) {
       event.preventDefault();
     }
   });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^data:application\/pdf[;,]/i.test(url)) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, plugins: true },
+        },
+      };
+    }
+    return { action: 'deny' };
+  });
+
+  // DevTools (F12 / Ctrl+Shift+I) only while developing — not in the
+  // installed app.
+  if (!app.isPackaged) {
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+        win.webContents.toggleDevTools();
+        event.preventDefault();
+      }
+    });
+  }
 }
 
 // ---- IPC: real filesystem access for the renderer (no nodeIntegration) ----
@@ -171,6 +244,10 @@ function safeDestinationPath(folderPath, fileName) {
   const safeName = path.basename(String(fileName || '').trim());
   if (!safeName) {
     throw new Error('Falta el nombre de archivo.');
+  }
+  // This app only ever writes (and removes) policy PDFs.
+  if (!/\.pdf$/i.test(safeName)) {
+    throw new Error('El nombre de archivo debe terminar en .pdf.');
   }
   const resolvedPath = path.resolve(resolvedFolder, safeName);
   if (resolvedPath !== resolvedFolder && !resolvedPath.startsWith(resolvedFolder + path.sep)) {
@@ -223,6 +300,10 @@ ipcMain.handle('save-file-to-folder', async (event, folderPath, fileName, dataUr
     if (!fileName) {
       throw new Error('Falta el nombre de archivo final.');
     }
+    // Same guard as the watch start: never write into the tree being watched.
+    if (activeWatchOrigin && isSameOrInside(folderPath, activeWatchOrigin)) {
+      throw new Error(FOLDERS_OVERLAP_MESSAGE);
+    }
     fs.mkdirSync(folderPath, { recursive: true });
 
     const match = /^data:[^;]+;base64,(.*)$/s.exec(String(dataUrl || ''));
@@ -241,39 +322,6 @@ ipcMain.handle('save-file-to-folder', async (event, folderPath, fileName, dataUr
     }
 
     return { success: true, path: fullPath };
-  } catch (err) {
-    return { success: false, error: err.message || String(err) };
-  }
-});
-
-// Reads every PDF directly inside a real, already-configured origin folder —
-// this is what lets "Auto-Procesar Carpeta Origen" actually scan the folder
-// the user set up in "Rutas Carpetas" instead of opening yet another folder
-// picker every time (the old renderer-side `showDirectoryPicker()` flow
-// never used the saved config at all, and could only ever recover a fake
-// "C:\Seguros\{name}" path, not the folder's real location).
-ipcMain.handle('read-folder-pdfs', async (event, folderPath) => {
-  try {
-    if (!folderPath || !String(folderPath).trim()) {
-      throw new Error('No hay una carpeta de origen configurada.');
-    }
-    if (!fs.existsSync(folderPath)) {
-      throw new Error(`La carpeta de origen no existe: ${folderPath}`);
-    }
-    const entries = fs.readdirSync(folderPath, { withFileTypes: true });
-    const files = [];
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.pdf')) {
-        const fullPath = path.join(folderPath, entry.name);
-        const buffer = fs.readFileSync(fullPath);
-        files.push({
-          name: entry.name,
-          size: buffer.length,
-          dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
-        });
-      }
-    }
-    return { success: true, files };
   } catch (err) {
     return { success: false, error: err.message || String(err) };
   }
@@ -300,16 +348,34 @@ ipcMain.handle('show-in-folder', (event, filePath) => {
 // save pipeline. Only one watch is kept at a time (starting a new one closes
 // whatever was running before).
 let activeFolderWatcher = null;
+// Folders of the watch currently running — what delete-origin-file and
+// save-file-to-folder check requests against. Null while no watch is active.
+let activeWatchOrigin = null;
+let activeWatchDestination = null;
 
-ipcMain.handle('start-folder-watch', (event, folderPath) => {
+function stopActiveWatch() {
+  if (activeFolderWatcher) {
+    activeFolderWatcher.close();
+    activeFolderWatcher = null;
+  }
+  activeWatchOrigin = null;
+  activeWatchDestination = null;
+}
+
+ipcMain.handle('start-folder-watch', (event, folderPath, destinationPath) => {
   try {
     if (!folderPath || !fs.existsSync(folderPath)) {
       throw new Error(`La carpeta de origen no existe: ${folderPath}`);
     }
-    if (activeFolderWatcher) {
-      activeFolderWatcher.close();
-      activeFolderWatcher = null;
+    if (!destinationPath || !String(destinationPath).trim()) {
+      throw new Error('No hay una carpeta de destino configurada.');
     }
+    if (foldersOverlap(folderPath, destinationPath)) {
+      throw new Error(FOLDERS_OVERLAP_MESSAGE);
+    }
+    stopActiveWatch();
+    activeWatchOrigin = realish(folderPath);
+    activeWatchDestination = realish(destinationPath);
 
     const sender = event.sender;
     activeFolderWatcher = chokidar.watch(folderPath, {
@@ -392,10 +458,7 @@ ipcMain.handle('start-folder-watch', (event, folderPath) => {
 });
 
 ipcMain.handle('stop-folder-watch', () => {
-  if (activeFolderWatcher) {
-    activeFolderWatcher.close();
-    activeFolderWatcher = null;
-  }
+  stopActiveWatch();
   return { success: true };
 });
 
@@ -404,15 +467,122 @@ ipcMain.handle('stop-folder-watch', () => {
 // every already-handled PDF just piles up in the origin folder forever.
 // Only ever called by the renderer *after* a successful destination save
 // (see App.tsx's handleWatchedFile), never speculatively.
+//
+// The path comes from the renderer, so it is not trusted: it is only honored
+// for a PDF that sits below the origin folder of the watch that is running
+// right now, and never inside the destination folder.
 ipcMain.handle('delete-origin-file', (event, filePath) => {
   try {
-    if (filePath && fs.existsSync(filePath)) {
+    if (!activeWatchOrigin) {
+      return { success: false, error: 'No hay un escaneo automático activo.' };
+    }
+    if (!filePath || !/\.pdf$/i.test(String(filePath))) {
+      return { success: false, error: 'Solo se pueden borrar archivos PDF de la carpeta de origen.' };
+    }
+    if (
+      !isSameOrInside(filePath, activeWatchOrigin) ||
+      comparable(filePath) === comparable(activeWatchOrigin) ||
+      (activeWatchDestination && isSameOrInside(filePath, activeWatchDestination))
+    ) {
+      return { success: false, error: 'El archivo está fuera de la carpeta de origen del escaneo.' };
+    }
+    if (fs.existsSync(filePath)) {
       fs.rmSync(filePath, { force: true });
       return { success: true };
     }
     return { success: false, error: 'El archivo ya no existe en la carpeta de origen.' };
   } catch (err) {
     return { success: false, error: err.message || String(err) };
+  }
+});
+
+// ---- History PDF copies ----
+// The history keeps a copy of every processed PDF for at most 7 days so it can
+// be previewed, downloaded or re-saved after a manual correction. Copies live
+// as plain files under userData (not in localStorage, whose ~5 MB quota
+// silently stopped the whole history from saving), one file per history
+// record id. The renderer deletes a record's copy together with the record.
+const BACKUP_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+// A copy that no history record claims is only swept once it is older than
+// this, so a file written a moment before its record reaches the history
+// (a batch still being processed) is never swept by mistake.
+const ORPHAN_BACKUP_GRACE_MS = 60 * 60 * 1000;
+
+function backupDirectory() {
+  const dir = path.join(app.getPath('userData'), 'pdf-backups');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function backupFilePath(id) {
+  if (!BACKUP_ID_PATTERN.test(String(id))) {
+    throw new Error('Identificador de respaldo inválido.');
+  }
+  return path.join(backupDirectory(), `${id}.pdf`);
+}
+
+ipcMain.handle('backup-save', (event, id, dataUrl) => {
+  try {
+    const match = /^data:[^;]+;base64,(.*)$/s.exec(String(dataUrl || ''));
+    if (!match) {
+      throw new Error('El documento no tiene contenido PDF válido para respaldar.');
+    }
+    fs.writeFileSync(backupFilePath(id), Buffer.from(match[1], 'base64'));
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('backup-read', (event, id) => {
+  try {
+    const file = backupFilePath(id);
+    if (!fs.existsSync(file)) {
+      return { success: false, error: 'El respaldo del PDF ya no existe.' };
+    }
+    return {
+      success: true,
+      dataUrl: `data:application/pdf;base64,${fs.readFileSync(file).toString('base64')}`,
+    };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('backup-delete', (event, ids) => {
+  let deleted = 0;
+  for (const id of Array.isArray(ids) ? ids : []) {
+    try {
+      const file = backupFilePath(id);
+      if (fs.existsSync(file)) {
+        fs.rmSync(file, { force: true });
+        deleted++;
+      }
+    } catch (err) {
+      console.error('[Backup] No se pudo borrar el respaldo:', err);
+    }
+  }
+  return { success: true, deleted };
+});
+
+// Removes every copy that no history record references any more (history
+// expired, record deleted while the app was closed, crash mid-save...).
+ipcMain.handle('backup-sweep', (event, keepIds) => {
+  const keep = new Set((Array.isArray(keepIds) ? keepIds : []).map(String));
+  let deleted = 0;
+  try {
+    const dir = backupDirectory();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.pdf')) continue;
+      if (keep.has(entry.name.slice(0, -4))) continue;
+      const file = path.join(dir, entry.name);
+      if (Date.now() - fs.statSync(file).mtimeMs < ORPHAN_BACKUP_GRACE_MS) continue;
+      fs.rmSync(file, { force: true });
+      deleted++;
+    }
+    return { success: true, deleted };
+  } catch (err) {
+    return { success: false, error: err.message || String(err), deleted };
   }
 });
 
@@ -446,10 +616,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (activeFolderWatcher) {
-    activeFolderWatcher.close();
-    activeFolderWatcher = null;
-  }
+  stopActiveWatch();
   if (process.platform !== 'darwin') {
     app.quit();
   }

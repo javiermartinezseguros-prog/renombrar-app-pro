@@ -35,6 +35,14 @@ export interface CompanyDefinition {
    * PDF text and/or the original filename. Matches on ANY of these.
    */
   aliases: string[];
+  /**
+   * Phrases that are not the company's name but only ever show up on its own
+   * templates (e.g. the wording of its payment coupon) — for documents that
+   * bake the company's name into an image, so `aliases` can't match.
+   * Weaker evidence than a name: they are only consulted when NO company's
+   * `aliases` matched anywhere in the document.
+   */
+  fingerprints?: string[];
   /** Broad line of business — biases the rubro default when nothing else in the text overrides it. */
   category?: 'Generales' | 'ART' | 'Vida' | 'Retiro';
   /** Rubro to assume when the generic engine can't find one in the text. */

@@ -8,5 +8,14 @@
   ],
   "1.0.11": [
     "Corregido: cuando dos documentos distintos calculaban el mismo nombre final (ej. uno falló la extracción y cayó en el nombre genérico), el segundo pisaba al primero en la carpeta de destino sin avisar. Ahora se guardan los dos, agregando \"(2)\", \"(3)\"... al que se repite, y queda marcado para revisión."
+  ],
+  "1.0.12": [
+    "Historial: ahora se conservan solo los últimos 7 días. Pasado ese plazo se borra el registro y también la copia del PDF que la app guardaba para la vista previa. Los PDFs de la carpeta de destino no se tocan nunca.",
+    "Se eliminó la lectura con Gemini y la clave de API: todo se procesa en tu PC. El OCR de documentos escaneados ahora funciona también sin internet.",
+    "La carpeta de origen y la de destino ya no pueden ser la misma ni estar una dentro de la otra: evita que el escaneo automático vuelva a procesar —y borre— archivos ya renombrados.",
+    "Corregido: el ZIP exportado ya no pisa archivos que tienen el mismo nombre, y el índice CSV se arma bien con razones sociales que llevan comillas.",
+    "Corregido: la compañía ya no se confunde por palabras sueltas del documento (por ejemplo la calle Rivadavia o la raza Holando).",
+    "Corregido: al guardar las rutas de carpetas se perdía la opción de escaneo automático al volver a abrir la app.",
+    "El instalador y las actualizaciones pesan mucho menos. Se quitó el botón de pólizas de ejemplo."
   ]
 }

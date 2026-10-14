@@ -5,10 +5,21 @@ import { extractGenericFields, detectDocumentType } from './engine';
 export type { CompanyDefinition, RuleExtractionResult };
 export { COMPANY_DEFINITIONS };
 
-/** Finds the best-matching company definition for this text/filename, if any. */
+/**
+ * Finds the best-matching company definition for this text/filename, if any.
+ *
+ * Two passes: first by company NAME (`aliases`), and only if nobody's name
+ * appears anywhere, by template fingerprint (`fingerprints`). The order
+ * matters: a payment-system phrase such as "pagomiscuentas" is printed by
+ * several insurers, so it must never beat a company whose own name is in the
+ * document.
+ */
 export function detectCompany(text: string, fileName: string): CompanyDefinition | undefined {
   const haystack = `${fileName} ${text}`.toLowerCase();
-  return COMPANY_DEFINITIONS.find((def) => def.aliases.some((alias) => haystack.includes(alias)));
+  return (
+    COMPANY_DEFINITIONS.find((def) => def.aliases.some((alias) => haystack.includes(alias))) ??
+    COMPANY_DEFINITIONS.find((def) => def.fingerprints?.some((phrase) => haystack.includes(phrase)))
+  );
 }
 
 /**
@@ -16,9 +27,7 @@ export function detectCompany(text: string, fileName: string): CompanyDefinition
  * company from the real PDF text (and filename as a secondary signal), then
  * apply the generic engine parameterized with that company's label variants,
  * plus any fully-custom logic it defines. This is what powers extraction
- * when no Gemini API key is configured, and it also runs alongside the AI
- * path to normalize the company name and cross-check the fields that matter
- * most for the rename (policy number, endorsement, document type).
+ * for every document: the PDF's text is read entirely on this computer.
  */
 export function extractPolicyFromText(
   text: string,

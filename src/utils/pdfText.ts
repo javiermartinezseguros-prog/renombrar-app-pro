@@ -1,17 +1,17 @@
 /**
  * Client-side PDF text extraction using pdf.js. Runs entirely in the
- * browser/Electron renderer — no server round-trip, no API cost.
+ * browser/Electron renderer — no server round-trip, no API cost, and the
+ * document never leaves the computer.
  *
- * This is the missing piece that used to make the app blind without a Gemini
- * API key: previously the "heuristic" fallback only ever looked at the
- * filename, never the actual document content. Now every processed PDF gets
- * its real text extracted and handed to `utils/companies` for rule-based
- * extraction, and to Gemini (when available) as grounding alongside the raw
- * PDF bytes.
+ * Every processed PDF gets its real text extracted here and handed to
+ * `utils/companies` for the rule-based extraction. Pages with no text layer
+ * (scans, vector-outlined fonts) fall back to local OCR (see ocr.ts).
  *
  * pdf.js is loaded via a dynamic import so it doesn't bloat the initial
  * bundle — it's only pulled in when a file is actually being processed.
  */
+
+import { recognizeText } from './ocr';
 
 // Per the user: the fields that matter (compañía, asegurado, póliza, endoso,
 // vigencia) are always on the first few pages — later pages are legal
@@ -243,35 +243,29 @@ async function renderPageToCanvas(page: any, scale = 2.5): Promise<HTMLCanvasEle
  * OCR fallback for PDFs with no usable text layer (confirmed real case:
  * some PDF generators draw text as vector paths, not font glyphs — pdf.js's
  * `getTextContent()` then returns nothing at all, no matter how the page is
- * rendered). Runs entirely client-side via tesseract.js, no server or API
- * key needed; loaded on demand since it's a sizeable, rarely-needed library.
+ * rendered). Runs entirely client-side via tesseract.js (see ocr.ts), no
+ * server needed; loaded on demand since it's a sizeable, rarely-needed library.
  */
 async function ocrPdfPages(pdf: any, pagesToRead: number, fileName: string): Promise<string> {
-  const { createWorker } = await import('tesseract.js');
-  const worker = await createWorker('spa');
   try {
     const ocrPageCount = Math.min(pagesToRead, MAX_OCR_PAGES);
     const pageTexts: string[] = [];
     for (let pageNum = 1; pageNum <= ocrPageCount; pageNum++) {
       const page = await pdf.getPage(pageNum);
       const canvas = await renderPageToCanvas(page);
-      const { data } = await worker.recognize(canvas);
-      pageTexts.push(data.text || '');
+      pageTexts.push(await recognizeText(canvas));
     }
     return pageTexts.join('\n').replace(/[ \t]+/g, ' ').trim();
   } catch (err) {
     console.warn(`OCR falló para "${fileName}":`, err);
     return '';
-  } finally {
-    await worker.terminate();
   }
 }
 
 /**
  * Extracts plain text from a PDF File. Returns '' (never throws) if the file
  * can't be parsed at all — callers should treat empty text as "extraction
- * unavailable", not as an error; the AI path (when an API key is configured)
- * can still read such files directly from the raw bytes.
+ * unavailable", not as an error.
  *
  * Falls back to OCR (see ocrPdfPages) when the normal text layer comes back
  * empty or nearly empty — confirmed necessary for at least one real insurer's

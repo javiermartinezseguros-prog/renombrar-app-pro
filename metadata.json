@@ -1,8 +1,5 @@
 {
   "name": "RenombrarAPP- Organizador y Renombrador de Seguros",
-  "description": "Aplicación de escritorio para lectura automática de pólizas en PDF, extracción inteligente de datos (compañía, asegurado, póliza, endoso, tipo de documento), renombrado estandarizado, historial interactivo y revisión manual.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "description": "Aplicación de escritorio para lectura automática de pólizas en PDF, extracción de datos (compañía, asegurado, póliza, endoso, tipo de documento), renombrado estandarizado, historial interactivo y revisión manual.",
+  "requestFramePermissions": []
 }

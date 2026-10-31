@@ -31,7 +31,11 @@ import {
   onAppUpdated,
   FolderPdfFile,
   AppUpdatedInfo,
+  getSystemAccent,
+  onSystemAccentChanged,
 } from './utils/electronBridge';
+import { setMenuAccent } from './utils/contextMenu';
+import { installTextFieldMenu } from './utils/textFieldMenu';
 import {
   HISTORY_RETENTION_DAYS,
   HISTORY_STORAGE_KEY,
@@ -128,6 +132,19 @@ export function App() {
   useEffect(() => {
     if (!isElectron()) return;
     return onAppUpdated((info) => setAppUpdateNotice(info));
+  }, []);
+
+  // Menús del clic derecho: la fila bajo el mouse lleva el color de acento de
+  // Windows (y lo sigue si el usuario lo cambia), y los campos de texto tienen
+  // su menú de Cortar / Copiar / Pegar.
+  useEffect(() => {
+    void getSystemAccent().then(setMenuAccent);
+    const stopAccent = onSystemAccentChanged(setMenuAccent);
+    const stopTextMenu = installTextFieldMenu();
+    return () => {
+      stopAccent();
+      stopTextMenu();
+    };
   }, []);
 
   // Save to localStorage. The history holds only text fields (the PDFs live in
@@ -923,6 +940,7 @@ export function App() {
         onScanAndProcessFolder={handleToggleFolderWatch}
         isScanning={isProcessing}
         isWatching={isWatchingFolder}
+        onNotify={addToast}
       />
 
       {/* 3. Main Workspace Container */}
@@ -954,6 +972,7 @@ export function App() {
           onDownloadSingle={handleDownloadSingle}
           onShowInFolder={handleShowInFolder}
           onBatchDelete={handleBatchDelete}
+          onNotify={addToast}
         />
       </main>
 

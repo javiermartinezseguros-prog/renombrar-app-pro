@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFileToFolder: (folderPath, fileName, dataUrl, oldFileName) =>
     ipcRenderer.invoke('save-file-to-folder', folderPath, fileName, dataUrl, oldFileName),
   showInFolder: (filePath) => ipcRenderer.invoke('show-in-folder', filePath),
+  openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
+  getAccentColor: () => ipcRenderer.invoke('get-accent-color'),
+  onAccentColorChanged: (callback) => {
+    const listener = (event, color) => callback(color);
+    ipcRenderer.on('accent-color-changed', listener);
+    return () => ipcRenderer.removeListener('accent-color-changed', listener);
+  },
   startFolderWatch: (originPath, destinationPath) =>
     ipcRenderer.invoke('start-folder-watch', originPath, destinationPath),
   stopFolderWatch: () => ipcRenderer.invoke('stop-folder-watch'),

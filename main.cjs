@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -336,6 +336,45 @@ ipcMain.handle('show-in-folder', (event, filePath) => {
   }
   return { success: false, error: 'El archivo ya no existe en esa ubicación.' };
 });
+
+// Opens a folder in the OS file explorer (right-click menu on the Origen /
+// Destino chips). The path comes from the renderer, so it is only honored when
+// it is an existing DIRECTORY: shell.openPath() on a file would run it.
+ipcMain.handle('open-folder', async (event, folderPath) => {
+  try {
+    const p = String(folderPath || '').trim();
+    if (!p || !fs.existsSync(p) || !fs.statSync(p).isDirectory()) {
+      return { success: false, error: 'La carpeta no existe: ' + p };
+    }
+    const err = await shell.openPath(p);
+    return err ? { success: false, error: err } : { success: true };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Windows accent color, used for the highlighted row of the context menus
+// (Windows reports it as RRGGBBAA; the renderer gets '#rrggbb' or null).
+function currentAccentColor() {
+  try {
+    if (typeof systemPreferences.getAccentColor !== 'function') return null;
+    const raw = systemPreferences.getAccentColor();
+    return /^[0-9a-fA-F]{6}/.test(raw) ? '#' + raw.slice(0, 6).toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+ipcMain.handle('get-accent-color', () => currentAccentColor());
+try {
+  systemPreferences.on('accent-color-changed', () => {
+    const color = currentAccentColor();
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.webContents.isDestroyed()) win.webContents.send('accent-color-changed', color);
+    }
+  });
+} catch {
+  // not available on this platform: the menus keep the default blue
+}
 
 // ---- Persistent folder watch ----
 // "Auto-Procesar Carpeta Origen" used to be a one-shot scan: it read

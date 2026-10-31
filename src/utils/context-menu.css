@@ -1,0 +1,70 @@
+/* Menú contextual de Soter — ESTILO_MENUS.md (Windows 11 + apple-design) */
+:root { --sm-accent: #0078d4; --sm-on-accent: #ffffff; }
+
+.sm-menu {
+  position: fixed; z-index: 9999; box-sizing: border-box;
+  min-width: 17.5rem; max-width: min(30rem, calc(100vw - 16px)); padding: 6px;
+  border-radius: 12px;
+  background: rgba(252, 252, 252, .94); color: #1b1b1b;
+  border: 1px solid rgba(0, 0, 0, .12);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .14), 0 12px 24px rgba(0, 0, 0, .20);
+  -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+  /* 14 pt; en rem para que crezca con la letra de la app (A / A+ / A++) */
+  font: 400 1.1667rem/1.2 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0; user-select: none; -webkit-user-select: none; outline: none; cursor: default;
+  will-change: transform, opacity;
+  --sm-sec: rgba(0, 0, 0, .62); --sm-dis: rgba(0, 0, 0, .42); --sm-sep: rgba(0, 0, 0, .14);
+  --sm-danger: #c42b1c; --sm-danger-hot: #ff6b63;
+}
+html.dark .sm-menu {
+  background: rgba(44, 44, 46, .92); color: #f5f5f7; border-color: rgba(255, 255, 255, .15);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .40), 0 12px 24px rgba(0, 0, 0, .50);
+  --sm-sec: rgba(255, 255, 255, .62); --sm-dis: rgba(255, 255, 255, .42); --sm-sep: rgba(255, 255, 255, .14);
+  --sm-danger: #ff6b63;
+}
+/* sin transparencia si Windows lo pide */
+@media (prefers-reduced-transparency: reduce) {
+  .sm-menu { -webkit-backdrop-filter: none; backdrop-filter: none; background: #fcfcfc; }
+  html.dark .sm-menu { background: #2c2c2e; }
+}
+@media (prefers-contrast: more) { .sm-menu { border-color: currentColor; } }
+
+.sm-row {
+  position: relative; display: flex; align-items: center; box-sizing: border-box;
+  min-height: 2.5rem; padding: .3rem 1rem .3rem 3.5rem; border-radius: 8px; white-space: nowrap;
+}
+.sm-ico {
+  position: absolute; left: 1rem; top: 50%; width: 1.25rem; height: 1.25rem; margin-top: -.625rem;
+  display: flex; align-items: center; justify-content: center; font-size: 1.25rem; line-height: 1;
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif;
+}
+.sm-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.sm-label u { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.sm-key { flex: none; margin-left: auto; padding-left: 2rem; font-size: .857em; color: var(--sm-sec); }
+.sm-arrow {
+  flex: none; margin-left: auto; padding-left: 1.5rem; font-size: .8em; color: var(--sm-sec);
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif;
+}
+.sm-sep { height: 1px; margin: 6px 18px; background: var(--sm-sep); }
+
+/* bajo el mouse o el teclado: píldora del acento de Windows */
+.sm-row.sm-hot { background: var(--sm-accent); color: var(--sm-on-accent); }
+.sm-row.sm-hot .sm-key, .sm-row.sm-hot .sm-arrow { color: var(--sm-on-accent); opacity: .82; }
+.sm-row.sm-hot:active { filter: brightness(.84); } /* responde al apretar, no al soltar */
+
+/* eliminar: rojo, al final y separado; bajo el mouse píldora roja con texto negro */
+.sm-row.sm-danger { color: var(--sm-danger); }
+.sm-row.sm-danger.sm-hot { background: var(--sm-danger-hot); color: #000; }
+.sm-row.sm-danger.sm-hot .sm-key { color: #000; opacity: .7; }
+
+/* no disponible: queda en gris, no desaparece */
+.sm-row.sm-off, .sm-row.sm-off .sm-key, .sm-row.sm-off .sm-arrow { color: var(--sm-dis); }
+.sm-row.sm-off.sm-hot { background: transparent; color: var(--sm-dis); }
+
+/* fila o carpeta a la que apunta el menú (queda marcada mientras está abierto) */
+.sm-target { outline: 2px solid var(--sm-accent); outline-offset: -2px; }
+/* y el aro del foco cuando se recorre con el teclado */
+.sm-focusable:focus { outline: none; }
+.sm-focusable:focus-visible { outline: 2px solid var(--sm-accent); outline-offset: -2px; }
+
+@media (prefers-reduced-motion: reduce) { .sm-menu { will-change: opacity; } }

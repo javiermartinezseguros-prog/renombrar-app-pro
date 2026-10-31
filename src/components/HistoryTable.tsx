@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { ExtractedPolicyData, DocumentType } from '../types';
 import { isElectron } from '../utils/electronBridge';
+import { openContextMenu } from '../utils/contextMenu';
+import { buildMultiMenu, buildRowMenu, RowMenuActions } from '../utils/menuModel';
 
 interface HistoryTableProps {
   policies: ExtractedPolicyData[];
@@ -33,6 +35,8 @@ interface HistoryTableProps {
   onDownloadSingle: (policy: ExtractedPolicyData) => void;
   onShowInFolder: (policy: ExtractedPolicyData) => void;
   onBatchDelete?: (ids: string[]) => void;
+  /** Avisos (toasts) para las acciones del menú del clic derecho, como copiar. */
+  onNotify?: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
 
 export const HistoryTable: React.FC<HistoryTableProps> = ({
@@ -45,8 +49,11 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
   onDownloadSingle,
   onShowInFolder,
   onBatchDelete,
+  onNotify,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  // Fila a la que apunta el menú del clic derecho mientras está abierto
+  const [menuRowId, setMenuRowId] = useState<string | null>(null);
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -98,8 +105,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
     });
   }, [policies, searchQuery, selectedTypeFilter, selectedCompanyFilter]);
 
-  const handleCopy = (e: React.MouseEvent, policy: ExtractedPolicyData) => {
-    e.stopPropagation();
+  const copyPolicyNumber = (policy: ExtractedPolicyData) => {
     const textToCopy = policy.numeroPolizaPadded || policy.numeroPoliza;
     navigator.clipboard.writeText(textToCopy);
     setCopiedId(policy.id);
@@ -107,11 +113,122 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleCopy = (e: React.MouseEvent, policy: ExtractedPolicyData) => {
+    e.stopPropagation();
+    copyPolicyNumber(policy);
+  };
+
   const handleSelectAll = () => {
     if (selectedIds.length === filteredPolicies.length) {
       setSelectedIds([]);
     } else {
       setSelectedIds(filteredPolicies.map((p) => p.id));
+    }
+  };
+
+  // ---------- menú del clic derecho (ESTILO_MENUS.md) ----------
+  const copyText = (text: string, what: string) => {
+    try {
+      navigator.clipboard.writeText(text);
+    } catch (e) {}
+    onNotify?.('success', 'Copiado', `Se copió ${what} al portapapeles.`);
+  };
+
+  const rowMenuActions = (item: ExtractedPolicyData): RowMenuActions => ({
+    openDetail: () => onOpenDetailSheet(item),
+    preview: () => onPreviewDocument(item),
+    edit: () => onOpenEditModal(item),
+    copyPolicyNumber: () => copyPolicyNumber(item),
+    copy: copyText,
+    showInFolder: () => onShowInFolder(item),
+    download: () => onDownloadSingle(item),
+    toggleSelect: () =>
+      setSelectedIds((prev) => (prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])),
+    selectAll: () => setSelectedIds(filteredPolicies.map((p) => p.id)),
+    filterByCompany: () => {
+      setSelectedCompanyFilter(item.compania);
+      onNotify?.('info', 'Filtrado por compañía', `Se muestran solo los documentos de ${item.compania}.`);
+    },
+    remove: () => onDeletePolicy(item.id),
+  });
+
+  const removeSelected = () => {
+    if (!onBatchDelete) return;
+    onBatchDelete(selectedIds);
+    setSelectedIds([]);
+  };
+
+  const openRowMenu = (item: ExtractedPolicyData, x: number, y: number, anchor?: HTMLElement) => {
+    const selectedMany = selectedIds.length > 1 && selectedIds.includes(item.id);
+    const items = selectedMany
+      ? buildMultiMenu(
+          policies.filter((p) => selectedIds.includes(p.id)),
+          {
+            copy: copyText,
+            clearSelection: () => setSelectedIds([]),
+            selectAll: () => setSelectedIds(filteredPolicies.map((p) => p.id)),
+            removeSelected,
+          }
+        )
+      : buildRowMenu(
+          item,
+          { canShowInFolder: isElectron() && Boolean(item.savedToDisk), selected: selectedIds.includes(item.id) },
+          rowMenuActions(item)
+        );
+    // Primero abre (si había otro menú, su onClose corre acá adentro) y recién después marca la fila.
+    openContextMenu({
+      x,
+      y,
+      items,
+      anchor,
+      onClose: () => setMenuRowId((current) => (current === item.id ? null : current)),
+    });
+    setMenuRowId(item.id);
+  };
+
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLTableRowElement>, item: ExtractedPolicyData) => {
+    const row = e.currentTarget;
+    // Tecla de menú o Shift+F10: sale el menú de la fila aunque el foco esté en uno de sus botones.
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      openRowMenu(item, 0, 0, row);
+      return;
+    }
+    // El resto de las teclas son de la fila solo si el foco está en la fila (no en un botón de adentro).
+    if (e.target !== row) return;
+    const withCtrl = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    const selectedMany = selectedIds.length > 1 && selectedIds.includes(item.id);
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onOpenDetailSheet(item);
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      onPreviewDocument(item);
+    } else if (e.key === 'Delete') {
+      e.preventDefault();
+      if (selectedMany) removeSelected();
+      else onDeletePolicy(item.id);
+    } else if (withCtrl && key === 'e') {
+      e.preventDefault();
+      onOpenEditModal(item);
+    } else if (withCtrl && key === 'c' && !window.getSelection()?.toString()) {
+      e.preventDefault();
+      if (selectedMany) {
+        const chosen = policies.filter((p) => selectedIds.includes(p.id));
+        copyText(chosen.map((p) => p.numeroPolizaPadded || p.numeroPoliza).join('\n'), `los ${chosen.length} N° de póliza`);
+      } else {
+        copyPolicyNumber(item);
+      }
+    } else if (withCtrl && key === 'a') {
+      e.preventDefault();
+      setSelectedIds(filteredPolicies.map((p) => p.id));
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const next = (e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling) as HTMLElement | null;
+      if (next) {
+        e.preventDefault();
+        next.focus();
+      }
     }
   };
 
@@ -260,7 +377,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
 
           {/* Table Hint */}
           <span className="text-[11px] text-slate-400 dark:text-slate-500 italic hidden lg:inline">
-            💡 Haz doble clic en una fila para ver la ficha completa | Clic en N° Póliza para copiar
+            💡 Doble clic: ficha completa | Clic derecho: más opciones | Clic en N° Póliza: copiar
           </span>
         </div>
       </div>
@@ -339,7 +456,15 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
                       key={item.id}
                       id={`policy-row-${item.id}`}
                       onDoubleClick={() => onOpenDetailSheet(item)}
-                      className={`group transition-colors cursor-pointer select-none ${
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        openRowMenu(item, e.clientX, e.clientY);
+                      }}
+                      onKeyDown={(e) => handleRowKeyDown(e, item)}
+                      tabIndex={0}
+                      className={`group transition-colors cursor-pointer select-none sm-focusable ${
+                        menuRowId === item.id ? 'sm-target ' : ''
+                      }${
                         isSelected
                           ? 'bg-blue-50/60 dark:bg-blue-950/30'
                           : isReviewRequired

@@ -17,5 +17,10 @@
     "Corregido: la compañía ya no se confunde por palabras sueltas del documento (por ejemplo la calle Rivadavia o la raza Holando).",
     "Corregido: al guardar las rutas de carpetas se perdía la opción de escaneo automático al volver a abrir la app.",
     "El instalador y las actualizaciones pesan mucho menos. Se quitó el botón de pólizas de ejemplo."
+  ],
+  "1.0.13": [
+    "Nuevo: menú del clic derecho. En la tabla (ver ficha, previsualizar, editar o corregir, copiar póliza / nombre / asegurado / patente, mostrar en la carpeta, seleccionar, filtrar por compañía y eliminar), en los campos de texto (cortar, copiar, pegar) y en las carpetas de Origen y Destino (abrir, copiar ruta, cambiar).",
+    "El menú es redondeado, toma el color de acento de tu Windows, crece con el tamaño de letra de la app (A, A+, A++) y respeta el movimiento reducido.",
+    "Se maneja también con el teclado: Shift+F10 o la tecla de menú abre el menú de la fila, flechas para recorrer, letra subrayada para elegir. Atajos en la tabla: Enter (ficha), Espacio (vista previa), Ctrl+E (editar), Ctrl+C (copiar póliza), Ctrl+A (seleccionar todas), Supr (eliminar)."
   ]
 }

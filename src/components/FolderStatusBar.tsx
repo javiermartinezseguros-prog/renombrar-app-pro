@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FolderInput, FolderOutput, Settings, ArrowRight, Loader2, Radar, Square } from 'lucide-react';
 import { FolderConfig } from '../types';
+import { isElectron, openFolder } from '../utils/electronBridge';
+import { openContextMenu } from '../utils/contextMenu';
+import { buildFolderMenu } from '../utils/menuModel';
 
 interface FolderStatusBarProps {
   folderConfig: FolderConfig;
@@ -11,6 +14,8 @@ interface FolderStatusBarProps {
   isScanning?: boolean;
   /** True while a persistent watch on the origin folder is active (desktop app only). */
   isWatching?: boolean;
+  /** Avisos (toasts) para las acciones del menú del clic derecho. */
+  onNotify?: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
 
 export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
@@ -21,7 +26,56 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
   onScanAndProcessFolder,
   isScanning = false,
   isWatching = false,
+  onNotify,
 }) => {
+  // Carpeta a la que apunta el menú del clic derecho mientras está abierto
+  const [menuFolder, setMenuFolder] = useState<'origin' | 'destination' | null>(null);
+
+  const openFolderMenu = (kind: 'origin' | 'destination', path: string, x: number, y: number, anchor?: HTMLElement) => {
+    const items = buildFolderMenu(
+      { canOpen: isElectron() },
+      {
+        open: async () => {
+          const result = await openFolder(path);
+          if (!result.success) onNotify?.('error', 'No se pudo abrir la carpeta', result.error);
+        },
+        copyPath: () => {
+          try {
+            navigator.clipboard.writeText(path);
+          } catch (e) {}
+          onNotify?.('success', 'Ruta copiada', path);
+        },
+        change: onOpenConfig,
+      }
+    );
+    // Primero abre (si había otro menú, su onClose corre acá adentro) y recién después marca la carpeta.
+    openContextMenu({
+      x,
+      y,
+      items,
+      anchor,
+      onClose: () => setMenuFolder((current) => (current === kind ? null : current)),
+    });
+    setMenuFolder(kind);
+  };
+
+  const folderMenuHandlers = (kind: 'origin' | 'destination', path: string) => ({
+    tabIndex: 0,
+    onContextMenu: (e: React.MouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      openFolderMenu(kind, path, e.clientX, e.clientY);
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+        e.preventDefault();
+        openFolderMenu(kind, path, 0, 0, e.currentTarget);
+      }
+    },
+  });
+
+  const originPath = folderConfig.originPath || 'C:\\Seguros\\Entrada_PDFs';
+  const destinationPath = folderConfig.destinationPath || 'C:\\Seguros\\Renombrados_Organizados';
+
   return (
     <div
       id="permanent-folder-status-bar"
@@ -33,13 +87,14 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
           {/* Origin Folder */}
           <div
             id="origin-folder-badge"
-            className="flex items-center gap-1.5 bg-white dark:bg-slate-800/90 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700/80 shadow-2xs"
+            {...folderMenuHandlers('origin', originPath)}
+            className={`sm-focusable ${menuFolder === 'origin' ? 'sm-target ' : ''}flex items-center gap-1.5 bg-white dark:bg-slate-800/90 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700/80 shadow-2xs`}
             title={`Carpeta de Entrada: ${folderConfig.originPath}`}
           >
             <FolderInput className="w-3.5 h-3.5 text-amber-500 shrink-0" />
             <span className="font-sans font-semibold text-slate-500 dark:text-slate-400">Origen:</span>
             <span className="text-slate-800 dark:text-slate-200 truncate max-w-[150px] sm:max-w-[220px] md:max-w-[280px]">
-              {folderConfig.originPath || 'C:\\Seguros\\Entrada_PDFs'}
+              {originPath}
             </span>
           </div>
 
@@ -48,13 +103,14 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
           {/* Destination Folder */}
           <div
             id="destination-folder-badge"
-            className="flex items-center gap-1.5 bg-white dark:bg-slate-800/90 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700/80 shadow-2xs"
+            {...folderMenuHandlers('destination', destinationPath)}
+            className={`sm-focusable ${menuFolder === 'destination' ? 'sm-target ' : ''}flex items-center gap-1.5 bg-white dark:bg-slate-800/90 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700/80 shadow-2xs`}
             title={`Carpeta de Destino: ${folderConfig.destinationPath}`}
           >
             <FolderOutput className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <span className="font-sans font-semibold text-slate-500 dark:text-slate-400">Destino:</span>
             <span className="text-slate-800 dark:text-slate-200 truncate max-w-[150px] sm:max-w-[220px] md:max-w-[280px]">
-              {folderConfig.destinationPath || 'C:\\Seguros\\Renombrados_Organizados'}
+              {destinationPath}
             </span>
           </div>
         </div>

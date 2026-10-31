@@ -34,6 +34,9 @@ interface ElectronAPI {
     oldFileName?: string
   ) => Promise<SaveFileResult>;
   showInFolder: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  openFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+  getAccentColor: () => Promise<string | null>;
+  onAccentColorChanged: (callback: (color: string | null) => void) => () => void;
   startFolderWatch: (originPath: string, destinationPath: string) => Promise<{ success: boolean; error?: string }>;
   stopFolderWatch: () => Promise<{ success: boolean }>;
   deleteOriginFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
@@ -173,4 +176,28 @@ export async function deletePolicyBackups(ids: string[]): Promise<void> {
 /** Removes every stored copy whose id is not in `keepIds` (and is not brand new). */
 export async function sweepPolicyBackups(keepIds: string[]): Promise<void> {
   await window.electronAPI?.backupSweep(keepIds);
+}
+
+/** Opens a folder in the OS file explorer (desktop app only). */
+export async function openFolder(folderPath: string): Promise<{ success: boolean; error?: string }> {
+  if (!window.electronAPI) {
+    return { success: false, error: 'Disponible solo en la app de escritorio.' };
+  }
+  return window.electronAPI.openFolder(folderPath);
+}
+
+/** The Windows accent color as '#rrggbb' (null outside the desktop app or when unavailable). */
+export async function getSystemAccent(): Promise<string | null> {
+  if (!window.electronAPI) return null;
+  try {
+    return await window.electronAPI.getAccentColor();
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribes to Windows accent color changes. Returns an unsubscribe function. */
+export function onSystemAccentChanged(callback: (color: string | null) => void): () => void {
+  if (!window.electronAPI) return () => {};
+  return window.electronAPI.onAccentColorChanged(callback);
 }

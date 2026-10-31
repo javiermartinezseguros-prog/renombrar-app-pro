@@ -25,6 +25,16 @@ La aplicación normaliza y estandariza los nombres de archivo bajo la siguiente 
 - **Origen:** donde caen los PDFs sin procesar. **Destino:** donde se guardan renombrados.
 - Origen y destino **deben ser dos carpetas separadas**: una no puede estar dentro de la otra ni ser la misma. Si lo estuvieran, el escaneo automático volvería a procesar (y borraría) los archivos ya renombrados, así que la pantalla de configuración y la app lo rechazan.
 
+## 🖱️ Menú del clic derecho
+
+Sigue el estilo común de las apps de Soter (`paleta-botones\ESTILO_MENUS.md`): redondeado, con la fila bajo el mouse en el **color de acento de Windows**, que crece con la letra de la app y respeta el movimiento reducido. Sale:
+
+- **En una fila del historial:** ver ficha, previsualizar, editar o «Revisar y corregir» (si hay dudas), copiar (N° de póliza, nombre del archivo, asegurado, patente, compañía), mostrar en la carpeta o descargar, seleccionar, filtrar por compañía y eliminar. Con varias filas tildadas: copiar sus N° de póliza o nombres, quitar la selección o eliminarlas.
+- **En cualquier campo de texto:** deshacer, cortar, copiar, pegar, seleccionar todo.
+- **En «Origen» y «Destino»:** abrir la carpeta, copiar la ruta, cambiarla.
+
+Con el teclado: `Shift+F10` o la tecla de menú sobre una fila; `↑ ↓` recorren, `→` abre un submenú, `←` / `Esc` lo cierran, `Enter` elige y la letra subrayada elige escribiéndola. Atajos en la tabla: `Enter` ficha, `Espacio` vista previa, `Ctrl+E` editar, `Ctrl+C` copiar la póliza, `Ctrl+A` seleccionar todas, `Supr` eliminar.
+
 ## 🕒 Historial de 7 días
 
 El historial conserva **solo los últimos 7 días**. Pasado ese plazo se borra el registro **y la copia del PDF** que la app guardaba para la vista previa, la descarga y la corrección manual (carpeta `pdf-backups` dentro de los datos de la app). Se controla al abrir la app y cada hora mientras está abierta. Los PDFs ya renombrados en la carpeta de destino **no se tocan nunca**.
@@ -77,6 +87,9 @@ npm test
 - `src/utils/policyExtractor.ts` ➜ Lee el PDF (texto u OCR) y aplica las reglas por compañía.
 - `src/utils/companies/` ➜ Motor de reglas y definiciones por aseguradora.
 - `src/utils/ocr.ts` ➜ OCR local (tesseract.js con worker, núcleo e idioma incluidos).
+- `src/utils/contextMenu.ts` y `context-menu.css` ➜ Motor del menú del clic derecho (dibujo, movimiento, teclado).
+- `src/utils/menuModel.ts` ➜ Qué dice cada menú (testeable, sin DOM).
+- `src/utils/textFieldMenu.ts` ➜ Menú de cortar / copiar / pegar de los campos de texto.
 - `src/utils/history.ts` ➜ Regla de retención de 7 días.
 - `src/utils/policyFiles.ts` ➜ Copias de los PDF del historial.
 - `src/utils/export.ts` ➜ Exportación a ZIP + índice CSV.

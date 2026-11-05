@@ -21,7 +21,26 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
   {
     id: 'san-cristobal',
     displayName: 'San Cristóbal Seguros',
-    aliases: ['san cristobal', 'san cristóbal', 'sancristobal', 's.m.s.g.'],
+    // Never the bare "san cristobal": it is also a Buenos Aires barrio ("CABA-SAN
+    // CRISTOBAL" in the risk location of a Mercantil Andina certificate) and made
+    // other insurers' documents read as San Cristóbal's.
+    aliases: [
+      'san cristobal seguros',
+      'san cristóbal seguros',
+      'san cristobal s.m.s.g',
+      'san cristóbal s.m.s.g',
+      'san cristobal smsg',
+      'san cristóbal smsg',
+      'san cristobal sociedad mutual',
+      'san cristóbal sociedad mutual',
+      'sancristobal',
+      's.m.s.g.',
+      'smsg',
+    ],
+    // Their payment coupon never says "San Cristóbal": it was read as ATM's
+    // (both print "pago electrónico"). Their own CUIT and SSN registration
+    // are checked before ATM's weak phrases because this company comes first.
+    fingerprints: ['34-50004533-9', 'inscrip. ssn 0192'],
     category: 'Generales',
     defaultRubro: 'Automotor',
     // Confirmed real fields: "TOMADOR / ASEGURADO", "N° PÓLIZA" (printed as
@@ -106,8 +125,21 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // "mercantil"/"andina" do not appear anywhere in its extractable text),
     // so detection there relies on fingerprint phrases confirmed unique to
     // their payment-coupon system instead of the company name itself.
-    aliases: ['mercantil andina', 'la mercantil andina'],
-    fingerprints: ['pagomiscuentas', 'código de link pagos', 'codigo de link pagos'],
+    // "mercantilandina" (no space) is how the frente de póliza names them: only
+    // through "www.mercantilandina.com.ar". The certificates and coupons carry
+    // no name at all, so they are recognized by phrases only their templates
+    // print and by the company's CUIT (checked against ~2,400 real PDFs).
+    aliases: ['mercantil andina', 'la mercantil andina', 'mercantilandina'],
+    fingerprints: [
+      '30-50003691-1',
+      'el presente plan de pago para la póliza',
+      '225 0086801',
+      'certificamos que esta aseguradora cubre el riesgo indicado',
+      'prd. 225-21200',
+      'pagomiscuentas',
+      'código de link pagos',
+      'codigo de link pagos',
+    ],
     category: 'Generales',
     // Confirmed real fields across Condiciones Particulares (Suplemento
     // Adicional) / Certificado de Cobertura: "POLIZA:"/"POLIZA Nº", "RAMA:"
@@ -229,7 +261,8 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // "intergity" (missing the second 'i') is a confirmed real typo baked
     // into their own Cuponera generator — that document type never spells
     // the company name correctly, so without this alias it goes undetected.
-    aliases: ['integrity', 'intégrity', 'intergity'],
+    aliases: ['integrity', 'intégrity', 'intergity', 'integrityseguros'],
+    fingerprints: ['30-70496198-3'],
     category: 'Generales',
     defaultRubro: 'Accidentes Personales',
     // Confirmed real fields on their "Constancia de Cobertura": "RAZÓN
@@ -296,6 +329,29 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
       '(sin "N°"). Cuponera no tiene etiquetas reales (quemadas en imagen) y su generador escribe el nombre de ' +
       'la compañía mal ("Intergity") — ver customExtract y el alias adicional arriba.',
   },
+  // ---- Added from the real archive (≈420 and ≈75 PDFs): same platform, same layouts ----
+  {
+    id: 'gestion',
+    displayName: 'Gestión Compañía Argentina de Seguros S.A.',
+    aliases: ['gestión compañía argentina', 'gestion compania argentina', 'gestionseguros', 'segurosgestion'],
+    fingerprints: ['30-71483881-0'],
+    category: 'Generales',
+    defaultRubro: 'Accidentes Personales',
+    notes:
+      'REAL (archivo de Javier): frente / certificado "TOMADOR POLIZA Nº [ENDOSO Nº] FEC. EMISION LUGAR" + fila de valores, ' +
+      'cuponera con fila "Secc. Póliza Endo." — ver layouts.ts (gestionDigna). Misma plataforma que Digna.',
+  },
+  {
+    id: 'digna',
+    displayName: 'Digna Seguros S.A.',
+    aliases: ['digna seguros', 'digna.com'],
+    fingerprints: ['30-71214858-2'],
+    category: 'Generales',
+    defaultRubro: 'Accidentes Personales',
+    notes:
+      'REAL (archivo de Javier): mismas plantillas que Gestión Seguros (ver layouts.ts, gestionDigna). Falta el ' +
+      '"Certificado grupal" y las nóminas: pocas muestras.',
+  },
   {
     id: 'atm-seguros',
     displayName: 'ATM Compañía de Seguros S.A.',
@@ -316,8 +372,10 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     // payment coupon's shorter "PAGO ELECTRÓNICO" heading — company
     // detection doesn't need to tell those two documents apart, only
     // tipoDocumento does (see customExtract).
-    aliases: ['atm seguros', 'atm compañía de seguros'],
-    fingerprints: ['el importe será debitado de', 'pago electrónico'],
+    aliases: ['atm seguros', 'atm compañía de seguros', 'atmseguros'],
+    // Their own CUIT first (strong); the two payment phrases are weak and only
+    // count when nothing stronger matched.
+    fingerprints: ['30-69940815-4', 'el importe será debitado de', 'pago electrónico'],
     category: 'Generales',
     defaultRubro: 'Automotor',
     // Confirmed real fields on their (older) tarjeta de circulación: "Asegurado:",
@@ -468,6 +526,7 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     id: 'agrosalta',
     displayName: 'Agrosalta Cooperativa de Seguros Limitada',
     aliases: ['agrosalta'],
+    fingerprints: ['30-50006485-0'],
     category: 'Generales',
     defaultRubro: 'Automotor',
     // Confirmed real: their "Tarjeta de Seguro Obligatorio" (domestic RC
@@ -541,6 +600,9 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     id: 'federacion-patronal',
     displayName: 'Federación Patronal Seguros S.A.',
     aliases: ['federacion patronal', 'federación patronal', 'fedpat'],
+    // Their certificate "A.P. PRESTACIONAL" prints neither the name nor the CUIT; its coverage
+    // lines are unique to them (0 hits in ~16,000 documents of other insurers).
+    fingerprints: ['33-70736658-9', 'renta diaria por internacion - 30 dias', 'renta diaria por internación - 30 dias'],
     category: 'Generales',
     insuredLabels: ['nombre y apellido'],
     // Confirmed real bug on their "Aviso de Emisión / Endoso Cualitativo"
@@ -583,6 +645,10 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     id: 'allianz',
     displayName: 'Allianz Argentina Compañía de Seguros S.A.',
     aliases: ['allianz'],
+    fingerprints: ['30-50003721-7'],
+    // Their label is "CONTRATANTE: APELLIDO, NOMBRE"; the bare word "asegurado"
+    // matched a sentence of the conditions instead (layouts.ts also reads it).
+    insuredLabels: ['contratante:'],
     category: 'Generales',
   },
   {
@@ -601,6 +667,7 @@ export const COMPANY_DEFINITIONS: CompanyDefinition[] = [
     id: 'mapfre',
     displayName: 'Mapfre Argentina Seguros S.A.',
     aliases: ['mapfre'],
+    fingerprints: ['33-70089372-9'],
     category: 'Generales',
   },
   {

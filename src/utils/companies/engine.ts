@@ -50,7 +50,10 @@ const GENERIC_ENDORSEMENT_LABELS = [
   'suplemento n°',
   'suplemento nº',
   'suplemento nro',
-  'suplemento adicional',
+  // "suplemento adicional" was removed: on Mercantil Andina it is the number
+  // of the printout ("Suplemento Adicional 01"), not the endoso — it made
+  // every endoso read "01". The real endoso is the digits after the slash in
+  // "Poliza 003912882/00001" (see layouts.ts).
   // Bare "Endoso:" with no "N°"/"Nro" qualifier — confirmed real label on
   // Intégrity's "Frente de Póliza" ("Endoso: 00006"). Checked last since
   // it's the least specific form.
@@ -177,7 +180,10 @@ function normalizeText(text: string): string {
 const NEXT_FIELD_BOUNDARY = new RegExp(
   '\\b(domicilio|localidad|provincia|vigencia|vig\\.|p[oó]liza|endoso|suplemento|cuit|dni|c[oó]d\\.?|' +
     'lugar|fecha|producto|certificado|raz[oó]n|veh[ií]culo|patente|n[°º]|nro|tel[ée]fono|direcci[oó]n|' +
-    'ramo|rama|secci[oó]n|rubro|per[ií]odo|solicitud|asegurado|tomador|con\\.?\\s*iva)\\b',
+    'ramo|rama|secci[oó]n|rubro|per[ií]odo|solicitud|asegurado|tomador|con\\.?\\s*iva|' +
+    // glued to a name or a rubro on some layouts: "NOMBRE CLIENTE:", "NOMBRE D.N.I.",
+    // "NOMBRE FIRMA DEL...", "AC - LABORAL... Para ser presentado ante quien corresponda"
+    'cliente|d\\.n\\.i|firma|moneda|para\\s+ser\\s+presentado)\\b',
   'i'
 );
 
@@ -302,7 +308,7 @@ export function detectDocumentType(text: string, fileName: string, numeroEndoso?
   // mercosur" are additional confirmed-real phrasings from the same
   // template family.
   if (
-    /(responsabilidad civil del?\s*propietario\s*y\/?o?\s*conductor|tarjeta mercosur|certificado de mercosur|constancia de cobertura|certificado de cobertura|certificado n[°º])/.test(
+    /(responsabilidad civil del?\s*propietario\s*y\/?o?\s*conductor|tarjeta mercosur|certificado de mercosur|constancia de cobertura|certificado de cobertura|certificado individual de incorporaci[oó]n|certificado de afiliaci[oó]n|certificado n[°º])/.test(
       combined
     )
   ) {
@@ -324,7 +330,10 @@ export function detectDocumentType(text: string, fileName: string, numeroEndoso?
   if (/(cup[oó]n oficial|cuponera)/.test(combined)) {
     return 'Cuponera';
   }
-  if (/(suplemento adicional|suplemento n[°º]|endoso de p[oó]liza|modificaci[oó]n de p[oó]liza)/.test(combined)) {
+  // "suplemento adicional" is deliberately not here: Mercantil Andina prints it
+  // on every frente de póliza too ("Según se detalla en suplemento adicional
+  // 01"), so it marked all of them as Endoso. The endoso number decides below.
+  if (/(suplemento n[°º]|endoso de p[oó]liza|modificaci[oó]n de p[oó]liza)/.test(combined)) {
     return 'Endoso';
   }
 

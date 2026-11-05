@@ -1,6 +1,8 @@
 import { CompanyDefinition, RuleExtractionResult } from './types';
 import { COMPANY_DEFINITIONS } from './definitions';
 import { extractGenericFields, detectDocumentType } from './engine';
+import { LAYOUT_RULES } from './layouts';
+import { maskCompanyCuits, normalizeOcrArtifacts, polishResult } from './cleanup';
 
 export type { CompanyDefinition, RuleExtractionResult };
 export { COMPANY_DEFINITIONS };
@@ -26,14 +28,21 @@ export function detectCompany(text: string, fileName: string): CompanyDefinition
  * Runs the full company-aware rule-based extraction pipeline: detect the
  * company from the real PDF text (and filename as a secondary signal), then
  * apply the generic engine parameterized with that company's label variants,
- * plus any fully-custom logic it defines. This is what powers extraction
- * for every document: the PDF's text is read entirely on this computer.
+ * plus any fully-custom logic it defines and, last, its layout rules. This is
+ * what powers extraction for every document: the PDF's text is read entirely
+ * on this computer.
  */
 export function extractPolicyFromText(
-  text: string,
+  rawText: string,
   fileName: string
 ): { data: RuleExtractionResult; matchedCompany?: CompanyDefinition } {
-  const matchedCompany = detectCompany(text, fileName);
+  // The OCR garbles "N°" in most scans; every label below is written with "°".
+  const readable = normalizeOcrArtifacts(rawText);
+  const matchedCompany = detectCompany(readable, fileName);
+  // From here on the insurer's own tax id is blanked out, so it can't be read
+  // as a policy number (it was, on ATM documents).
+  const text = maskCompanyCuits(readable);
+
   const generic = extractGenericFields(text, fileName, matchedCompany);
   const custom = matchedCompany?.customExtract?.(text, fileName) ?? {};
   const merged = { ...generic, ...custom };
@@ -63,6 +72,14 @@ export function extractPolicyFromText(
     // stale "Endoso" guess survives even after the number itself is fixed.
     merged.tipoDocumento = detectDocumentType(text, fileName, merged.numeroEndoso);
   }
+
+  // Layout rules (layouts.ts) read specific, measured templates and only
+  // return what they can state with certainty, so they have the last word —
+  // including the document type, which they derive from the real endoso.
+  const layout = matchedCompany ? LAYOUT_RULES[matchedCompany.id]?.(text, fileName, merged) : undefined;
+  if (layout) Object.assign(merged, layout);
+
+  polishResult(merged);
 
   // Judged on the final merged result (see the note in engine.ts) — never
   // AI-verified, so 'Media' is the ceiling, only once the two fields that

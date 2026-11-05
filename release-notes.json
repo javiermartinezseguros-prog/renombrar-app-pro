@@ -22,5 +22,15 @@
     "Nuevo: menú del clic derecho. En la tabla (ver ficha, previsualizar, editar o corregir, copiar póliza / nombre / asegurado / patente, mostrar en la carpeta, seleccionar, filtrar por compañía y eliminar), en los campos de texto (cortar, copiar, pegar) y en las carpetas de Origen y Destino (abrir, copiar ruta, cambiar).",
     "El menú es redondeado, toma el color de acento de tu Windows, crece con el tamaño de letra de la app (A, A+, A++) y respeta el movimiento reducido.",
     "Se maneja también con el teclado: Shift+F10 o la tecla de menú abre el menú de la fila, flechas para recorrer, letra subrayada para elegir. Atajos en la tabla: Enter (ficha), Espacio (vista previa), Ctrl+E (editar), Ctrl+C (copiar póliza), Ctrl+A (seleccionar todas), Supr (eliminar)."
+  ],
+  "1.1.0": [
+    "La lectura de los documentos acierta mucho más. Medido sobre miles de PDF reales: compañía 75 → 99 %, número de póliza 75 → 98 %, endoso 65 → 99 %, asegurado 69 → 97 % (documentos con texto). En escaneados: póliza 15 → 65 %, endoso 18 → 97 %, asegurado 50 → 84 %.",
+    "Reglas nuevas por compañía: Mercantil Andina, Integrity, Gestión, Digna, San Cristóbal, Federación Patronal, Mapfre, Allianz, ATM y Agrosalta (cuponeras, certificados, tarjetas, constancias, avisos de emisión y pagos consolidados).",
+    "Nuevo: se reconocen Gestión Seguros y Digna Seguros.",
+    "Mapfre: el número de póliza se toma con sus 8 dígitos y el endoso del propio documento.",
+    "Corregido: la app ya no confunde el CUIT de la compañía con el número de póliza, ni toma el \"Suplemento Adicional\" como endoso, ni lee mal el \"N°\" de los escaneados.",
+    "Corregido: San Cristóbal ya no se detecta por el barrio \"San Cristóbal\" de una dirección.",
+    "Corregido: el nombre del asegurado se limpia (corta en campos vecinos como CLIENTE, D.N.I. o CUIT y descarta frases que no son nombres).",
+    "Nuevo: cuando una tarjeta de ATM escaneada no deja leer el número de póliza, la app lo completa con el de otro documento del mismo asegurado y la misma vigencia (siempre que haya una sola póliza posible). La nota queda en la ficha del documento. Si hay dudas, no inventa nada y queda para revisar."
   ]
 }

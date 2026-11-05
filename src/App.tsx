@@ -50,6 +50,7 @@ import {
   sweepPolicyFiles,
 } from './utils/policyFiles';
 import { buildPoliciesZip } from './utils/export';
+import { findMissingPolicies } from './utils/pairing';
 
 const STORAGE_KEY_FOLDERS = 'polizamaster_folder_config_v1';
 const STORAGE_KEY_THEME = 'polizamaster_theme_mode_v1';
@@ -818,6 +819,79 @@ export function App() {
         : `Movido a categoría "${verifiedPolicy.tipoDocumento}" con estado Listo: ${verifiedPolicy.finalFileName}`
     );
   };
+
+  // A scanned document whose policy number the OCR cannot read (ATM's card) takes it from another
+  // document of the same insured and the same validity dates, when exactly one number matches
+  // (see utils/pairing.ts). The renamed copy in the destination folder is replaced like in a
+  // manual correction. Runs on every change of the list, so it does not matter which of the two
+  // documents was processed first.
+  const pairingBusyRef = useRef(false);
+  const pairingAgainRef = useRef(false);
+  const pairingFailedRef = useRef<Set<string>>(new Set());
+
+  const completeMissingPolicies = async (list: ExtractedPolicyData[]) => {
+    const pairings = findMissingPolicies(list).filter((p) => !pairingFailedRef.current.has(p.id));
+    for (const pairing of pairings) {
+      const target = list.find((p) => p.id === pairing.id);
+      if (!target) continue;
+      const padded = formatPolicyNumber(pairing.numeroPoliza);
+      const newName = target.isCustomRenamed
+        ? target.finalFileName
+        : generateStandardFileName(padded, target.numeroEndoso, target.tipoDocumento);
+      let updated: ExtractedPolicyData = {
+        ...target,
+        numeroPoliza: pairing.numeroPoliza,
+        numeroPolizaPadded: padded,
+        suggestedFileName: newName,
+        finalFileName: newName,
+        confianza: 'Media',
+        status: 'Completado',
+        observaciones: `${target.observaciones ? target.observaciones + ' — ' : ''}El OCR no pudo leer el número de póliza en este documento: se tomó de "${pairing.sourceFileName}" (mismo asegurado y misma vigencia).`,
+      };
+
+      if (target.savedToDisk && isElectron() && folderConfig.destinationPath) {
+        const fileDataUrl = await getPolicyFileDataUrl(target.id);
+        const saveResult = fileDataUrl
+          ? await saveFileToDestination(folderConfig.destinationPath, newName, fileDataUrl, target.finalFileName)
+          : undefined;
+        if (!saveResult?.success) {
+          // Could not rewrite the saved copy: leave the record as it was (still "Revisión Requerida").
+          pairingFailedRef.current.add(target.id);
+          continue;
+        }
+        const actualName = saveResult.path?.split(/[\\/]/).pop();
+        updated = {
+          ...updated,
+          destinationPath: saveResult.path,
+          ...(actualName && actualName !== newName ? { finalFileName: actualName, suggestedFileName: actualName } : {}),
+        };
+      }
+
+      setPolicies((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      addToast('info', 'Número de póliza completado', `${updated.finalFileName}: tomado de "${pairing.sourceFileName}".`);
+    }
+  };
+
+  const runPairing = async () => {
+    if (pairingBusyRef.current) {
+      pairingAgainRef.current = true;
+      return;
+    }
+    pairingBusyRef.current = true;
+    try {
+      do {
+        pairingAgainRef.current = false;
+        await completeMissingPolicies(policiesRef.current);
+      } while (pairingAgainRef.current);
+    } finally {
+      pairingBusyRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    void runPairing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [policies]);
 
   // Delete policy from history (and the copy of its PDF that went with it)
   const handleDeletePolicy = (id: string) => {

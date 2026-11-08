@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search,
   Filter,
@@ -9,24 +9,40 @@ import {
   Download,
   FileText,
   AlertTriangle,
-  Building2,
-  User,
-  Hash,
-  Layers,
-  ChevronRight,
   Eye,
   ScanSearch,
   FolderOutput,
   CheckSquare,
   Square,
+  Link2,
 } from 'lucide-react';
 import { ExtractedPolicyData, DocumentType } from '../types';
 import { isElectron } from '../utils/electronBridge';
 import { openContextMenu } from '../utils/contextMenu';
-import { buildMultiMenu, buildRowMenu, RowMenuActions } from '../utils/menuModel';
+import { buildMultiMenu, buildRowMenu, needsReview, RowMenuActions } from '../utils/menuModel';
+import {
+  foldText,
+  highlightRanges,
+  matchesPerson,
+  MIN_SUGGEST_CHARS,
+  suggestionDetail,
+  suggestPeople,
+  PersonSuggestion,
+} from '../utils/personSearch';
+import { FloatTip } from './FloatTip';
+
+export interface HistoryFilters {
+  query: string;
+  /** 'all', un tipo de documento o 'revision'. */
+  type: string;
+  /** 'all' o el nombre de una compañía. */
+  company: string;
+}
 
 interface HistoryTableProps {
   policies: ExtractedPolicyData[];
+  filters: HistoryFilters;
+  onFiltersChange: (patch: Partial<HistoryFilters>) => void;
   onOpenDetailSheet: (policy: ExtractedPolicyData) => void;
   onOpenEditModal: (policy: ExtractedPolicyData) => void;
   onPreviewDocument: (policy: ExtractedPolicyData) => void;
@@ -39,8 +55,54 @@ interface HistoryTableProps {
   onNotify?: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
 
+const TYPE_PILLS: Array<{ type: string; label: string; on: string }> = [
+  { type: 'all', label: 'Todos', on: 'bg-blue-600' },
+  { type: 'Póliza', label: 'Pólizas', on: 'bg-blue-600' },
+  { type: 'Endoso', label: 'Endosos', on: 'bg-purple-600' },
+  { type: 'Tarjeta de RC', label: 'Tarjetas de RC', on: 'bg-amber-600' },
+  { type: 'Cuponera', label: 'Cuponeras', on: 'bg-emerald-600' },
+  { type: 'Cobertura', label: 'Coberturas', on: 'bg-cyan-600' },
+];
+
+const getDocTypeBadge = (type: DocumentType) => {
+  switch (type) {
+    case 'Tarjeta de RC':
+      return 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+    case 'Cuponera':
+      return 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+    case 'Cobertura':
+      return 'bg-cyan-100 dark:bg-cyan-950/70 text-cyan-800 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800';
+    case 'Endoso':
+      return 'bg-purple-100 dark:bg-purple-950/70 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+    case 'Póliza':
+    default:
+      return 'bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+  }
+};
+
+/** El nombre con lo escrito resaltado. */
+const Highlighted: React.FC<{ name: string; query: string }> = ({ name, query }) => {
+  const ranges = highlightRanges(name, query);
+  if (ranges.length === 0) return <>{name}</>;
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  ranges.forEach(([from, to], i) => {
+    if (from > at) parts.push(name.slice(at, from));
+    parts.push(
+      <mark key={i} className="bg-amber-200 dark:bg-amber-400/40 text-inherit rounded-sm px-0">
+        {name.slice(from, to)}
+      </mark>
+    );
+    at = to;
+  });
+  if (at < name.length) parts.push(name.slice(at));
+  return <>{parts}</>;
+};
+
 export const HistoryTable: React.FC<HistoryTableProps> = ({
   policies,
+  filters,
+  onFiltersChange,
   onOpenDetailSheet,
   onOpenEditModal,
   onPreviewDocument,
@@ -51,13 +113,27 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
   onBatchDelete,
   onNotify,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
+  const { query: searchQuery, type: selectedTypeFilter, company: selectedCompanyFilter } = filters;
   // Fila a la que apunta el menú del clic derecho mientras está abierto
   const [menuRowId, setMenuRowId] = useState<string | null>(null);
-  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
-  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // ---------- sugerencias de personas (norma 3) ----------
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [suggestionsHidden, setSuggestionsHidden] = useState(false);
+  const [suggestQuery, setSuggestQuery] = useState(searchQuery);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // No traba la escritura: espera ~150 ms entre letras antes de buscar.
+  useEffect(() => {
+    const timer = setTimeout(() => setSuggestQuery(searchQuery), 150);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Un número (póliza, celular, DNI) lo resuelve el filtro de la tabla, no las sugerencias de personas.
+  const typedNumber = /^[\d\s.\-]+$/.test(searchQuery.trim());
 
   // Unique companies for filter
   const uniqueCompanies = useMemo(() => {
@@ -70,40 +146,79 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
 
   // Filtered policies
   const filteredPolicies = useMemo(() => {
+    const q = foldText(searchQuery).trim();
     return policies.filter((item) => {
-      // Type Filter
       if (selectedTypeFilter !== 'all') {
         if (selectedTypeFilter === 'revision') {
-          if (item.status !== 'Revisión Requerida' && item.confianza !== 'Baja') {
-            return false;
-          }
+          if (!needsReview(item)) return false;
         } else if (item.tipoDocumento !== selectedTypeFilter) {
           return false;
         }
       }
-
-      // Company Filter
-      if (selectedCompanyFilter !== 'all' && item.compania !== selectedCompanyFilter) {
-        return false;
+      if (selectedCompanyFilter !== 'all' && item.compania !== selectedCompanyFilter) return false;
+      if (q) {
+        // el nombre se busca con todas las palabras, sin tildes y en cualquier orden; lo demás, como texto
+        const has = (text?: string) => foldText(text).includes(q);
+        return (
+          matchesPerson(item.asegurado, searchQuery) ||
+          has(item.numeroPoliza) ||
+          has(item.numeroPolizaPadded) ||
+          has(item.compania) ||
+          has(item.rubro) ||
+          has(item.originalFileName) ||
+          has(item.finalFileName) ||
+          has(item.vehiculo?.patente)
+        );
       }
-
-      // Search Query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchName = item.asegurado?.toLowerCase().includes(q);
-        const matchPolicy = item.numeroPoliza?.toLowerCase().includes(q) || item.numeroPolizaPadded?.includes(q);
-        const matchCompany = item.compania?.toLowerCase().includes(q);
-        const matchBranch = item.rubro?.toLowerCase().includes(q);
-        const matchOrig = item.originalFileName?.toLowerCase().includes(q);
-        const matchFinal = item.finalFileName?.toLowerCase().includes(q);
-        const matchVehicle = item.vehiculo?.patente?.toLowerCase().includes(q);
-
-        return matchName || matchPolicy || matchCompany || matchBranch || matchOrig || matchFinal || matchVehicle;
-      }
-
       return true;
     });
   }, [policies, searchQuery, selectedTypeFilter, selectedCompanyFilter]);
+
+  const suggestions = useMemo<PersonSuggestion[]>(
+    () => (typedNumber ? [] : suggestPeople(policies, suggestQuery, 60)),
+    [policies, suggestQuery, typedNumber]
+  );
+  const searchReady = foldText(searchQuery).trim().length >= MIN_SUGGEST_CHARS && !typedNumber;
+  const noOneFound = searchReady && suggestions.length === 0 && filteredPolicies.length === 0;
+  const listOpen = searchFocused && !suggestionsHidden && searchReady && (suggestions.length > 0 || noOneFound);
+
+  useEffect(() => {
+    if (activeSuggestion < 0) return;
+    (listRef.current?.querySelector(`[data-index="${activeSuggestion}"]`) as HTMLElement | null)?.scrollIntoView({ block: 'nearest' });
+  }, [activeSuggestion]);
+
+  const chooseSuggestion = (s: PersonSuggestion) => {
+    onFiltersChange({ query: s.name });
+    setSuggestQuery(s.name);
+    setSuggestionsHidden(true);
+    setActiveSuggestion(-1);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!listOpen || suggestions.length === 0) {
+      if (e.key === 'Escape' && searchQuery) {
+        e.preventDefault();
+        onFiltersChange({ query: '' });
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestion((i) => Math.min(suggestions.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestion((i) => Math.max(0, i - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      chooseSuggestion(suggestions[Math.max(0, activeSuggestion)]);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      chooseSuggestion(suggestions[0]); // Tab completa con la primera
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setSuggestionsHidden(true);
+    }
+  };
 
   const copyPolicyNumber = (policy: ExtractedPolicyData) => {
     const textToCopy = policy.numeroPolizaPadded || policy.numeroPoliza;
@@ -119,11 +234,8 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.length === filteredPolicies.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filteredPolicies.map((p) => p.id));
-    }
+    if (selectedIds.length === filteredPolicies.length) setSelectedIds([]);
+    else setSelectedIds(filteredPolicies.map((p) => p.id));
   };
 
   // ---------- menú del clic derecho (ESTILO_MENUS.md) ----------
@@ -146,7 +258,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
       setSelectedIds((prev) => (prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])),
     selectAll: () => setSelectedIds(filteredPolicies.map((p) => p.id)),
     filterByCompany: () => {
-      setSelectedCompanyFilter(item.compania);
+      onFiltersChange({ company: item.compania });
       onNotify?.('info', 'Filtrado por compañía', `Se muestran solo los documentos de ${item.compania}.`);
     },
     remove: () => onDeletePolicy(item.id),
@@ -234,405 +346,376 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
 
   const handleToggleSelect = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
-  const getDocTypeBadge = (type: DocumentType) => {
-    switch (type) {
-      case 'Tarjeta de RC':
-        return 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800';
-      case 'Cuponera':
-        return 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
-      case 'Cobertura':
-        return 'bg-cyan-100 dark:bg-cyan-950/70 text-cyan-800 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800';
-      case 'Endoso':
-        return 'bg-purple-100 dark:bg-purple-950/70 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-800';
-      case 'Póliza':
-      default:
-        return 'bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800';
-    }
-  };
+  const pill = (active: boolean, on: string) =>
+    `px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+      active ? `${on} text-white shadow-2xs font-semibold` : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+    }`;
+
+  const th = 'sticky top-0 z-10 py-2 px-2.5 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700';
 
   return (
-    <div id="history-section" className="space-y-4">
-      {/* Top Search & Filter Bar */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          {/* Search Input */}
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-            <input
-              type="text"
-              id="search-policies-input"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por asegurado, N° póliza (9 dígitos), compañía, rubro, patente o nombre..."
-              className="w-full pl-10 pr-4 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 transition-all"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                Limpiar
-              </button>
-            )}
-          </div>
-
-          {/* Company Filter Dropdown */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <select
-              value={selectedCompanyFilter}
-              onChange={(e) => setSelectedCompanyFilter(e.target.value)}
-              className="px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500"
+    <div id="history-section" className="flex-1 min-h-0 flex flex-col gap-2">
+      {/* Buscador y filtros (fijos: no se desplazan con la tabla) */}
+      <div className="shrink-0 bg-white dark:bg-slate-900 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="relative flex-1 min-w-[16rem]">
+          <Search className="w-4 h-4 text-blue-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            id="search-policies-input"
+            data-help="search-policies-input"
+            role="combobox"
+            aria-expanded={listOpen}
+            aria-controls="search-suggestions"
+            aria-autocomplete="list"
+            autoComplete="off"
+            value={searchQuery}
+            onChange={(e) => {
+              onFiltersChange({ query: e.target.value });
+              setSuggestionsHidden(false);
+              setActiveSuggestion(-1);
+            }}
+            onFocus={() => {
+              setSearchFocused(true);
+              setSuggestionsHidden(false);
+            }}
+            onBlur={() => setSearchFocused(false)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Buscar asegurado, N° póliza, compañía, patente…"
+            className="field-soft w-full pl-9 pr-16 py-1.5 text-xs rounded-xl"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onFiltersChange({ query: '' })}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
             >
-              <option value="all">Todas las Compañías ({uniqueCompanies.length})</option>
-              {uniqueCompanies.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
+              Limpiar
+            </button>
+          )}
+
+          {listOpen && (
+            <div
+              id="search-suggestions"
+              role="listbox"
+              className="absolute left-0 top-full mt-1 z-40 w-[40rem] min-w-full max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden"
+            >
+              {noOneFound ? (
+                <div className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+                  No encontré a nadie con “{searchQuery.trim()}”.
+                </div>
+              ) : (
+                <>
+                  <div ref={listRef} className="max-h-[17.5rem] overflow-y-auto">
+                    {suggestions.map((s, i) => (
+                      <div
+                        key={s.name}
+                        role="option"
+                        aria-selected={i === activeSuggestion}
+                        data-index={i}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          chooseSuggestion(s);
+                        }}
+                        onMouseEnter={() => setActiveSuggestion(i)}
+                        className={`flex items-center justify-between gap-4 px-4 h-[2.125rem] cursor-pointer text-xs ${
+                          i === activeSuggestion ? 'bg-blue-100 dark:bg-blue-950/60' : ''
+                        }`}
+                      >
+                        <span className="font-bold uppercase tracking-tight text-slate-900 dark:text-white truncate">
+                          <Highlighted name={s.name} query={searchQuery} />
+                        </span>
+                        <span className="shrink-0 text-slate-500 dark:text-slate-400 truncate max-w-[55%]">{suggestionDetail(s)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-4 py-1.5 text-[11px] text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60">
+                    ↑ ↓ para recorrer · Enter para abrir · Esc para cerrar · Tab completa con la primera
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Filter Quick Pills */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
-            <button
-              onClick={() => setSelectedTypeFilter('all')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                selectedTypeFilter === 'all'
-                  ? 'bg-blue-600 text-white shadow-2xs font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Todos ({policies.length})
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('Póliza')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                selectedTypeFilter === 'Póliza'
-                  ? 'bg-blue-600 text-white shadow-2xs font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Pólizas
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('Endoso')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                selectedTypeFilter === 'Endoso'
-                  ? 'bg-purple-600 text-white shadow-2xs font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Endosos
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('Tarjeta de RC')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                selectedTypeFilter === 'Tarjeta de RC'
-                  ? 'bg-amber-600 text-white shadow-2xs font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Tarjetas de RC
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('Cuponera')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                selectedTypeFilter === 'Cuponera'
-                  ? 'bg-emerald-600 text-white shadow-2xs font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Cuponeras
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('Cobertura')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                selectedTypeFilter === 'Cobertura'
-                  ? 'bg-cyan-600 text-white shadow-2xs font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Coberturas
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('revision')}
-              className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
-                selectedTypeFilter === 'revision'
-                  ? 'bg-rose-600 text-white shadow-2xs font-semibold'
-                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200 dark:border-rose-900/60'
-              }`}
-            >
-              <AlertTriangle className="w-3 h-3" />
-              <span>Pendientes Revisión</span>
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <Filter className="w-3.5 h-3.5 text-slate-400" />
+          <select
+            data-help="company-filter"
+            value={selectedCompanyFilter}
+            onChange={(e) => onFiltersChange({ company: e.target.value })}
+            className="field-soft px-2.5 py-1.5 text-xs rounded-xl"
+          >
+            <option value="all">Todas las Compañías ({uniqueCompanies.length})</option>
+            {uniqueCompanies.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
 
-          {/* Table Hint */}
-          <span className="text-[11px] text-slate-400 dark:text-slate-500 italic hidden lg:inline">
-            💡 Doble clic: ficha completa | Clic derecho: más opciones | Clic en N° Póliza: copiar
-          </span>
+        <div data-help="type-pills" className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
+          {TYPE_PILLS.map(({ type, label, on }) => (
+            <button key={type} type="button" onClick={() => onFiltersChange({ type })} className={pill(selectedTypeFilter === type, on)}>
+              {type === 'all' ? `${label} (${policies.length})` : label}
+            </button>
+          ))}
+          <button
+            type="button"
+            data-help="review-pill"
+            onClick={() => onFiltersChange({ type: 'revision' })}
+            className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${
+              selectedTypeFilter === 'revision'
+                ? 'bg-rose-600 text-white shadow-2xs font-semibold'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200 dark:border-rose-900/60'
+            }`}
+          >
+            <AlertTriangle className="w-3 h-3" />
+            <span>Pendientes Revisión</span>
+          </button>
         </div>
       </div>
 
       {/* Selected Batch Bar */}
       {selectedIds.length > 0 && (
-        <div className="bg-blue-50 dark:bg-blue-950/60 p-2.5 px-4 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200">
+        <div className="shrink-0 bg-blue-50 dark:bg-blue-950/60 py-1.5 px-4 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200">
           <span>{selectedIds.length} elementos seleccionados</span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (onBatchDelete) {
-                  onBatchDelete(selectedIds);
-                  setSelectedIds([]);
-                }
-              }}
-              className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-medium transition-colors flex items-center gap-1"
-            >
-              <Trash2 className="w-3 h-3" />
-              <span>Eliminar Seleccionados</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            data-help="batch-delete"
+            onClick={removeSelected}
+            className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-medium transition-colors flex items-center gap-1"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>Eliminar Seleccionados</span>
+          </button>
         </div>
       )}
 
-      {/* Main Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+      {/* Tabla: ocupa el alto que queda y se desplaza por dentro, con los títulos fijos */}
+      <div
+        id="history-table-frame"
+        className="flex-1 min-h-[9rem] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-auto"
+      >
         {filteredPolicies.length === 0 ? (
-          <div className="py-14 px-6 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 mx-auto flex items-center justify-center">
-              <FileText className="w-6 h-6" />
+          <div className="py-10 px-6 text-center space-y-2">
+            <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 mx-auto flex items-center justify-center">
+              <FileText className="w-5 h-5" />
             </div>
-            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">
-              No se encontraron pólizas ni documentos
-            </h4>
+            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">No se encontraron pólizas ni documentos</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-              Arrastra archivos PDF en la zona superior o carga los ejemplos para comenzar.
+              Arrastrá archivos PDF a la franja de arriba, o cambiá el filtro o la búsqueda.
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-3 w-10 text-center">
-                    <button
-                      onClick={handleSelectAll}
-                      className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      title="Seleccionar todos"
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                <th className={`${th} w-10 text-center`}>
+                  <button
+                    type="button"
+                    data-help="select-all"
+                    onClick={handleSelectAll}
+                    className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    title="Seleccionar todos (Ctrl+A)"
+                  >
+                    {selectedIds.length === filteredPolicies.length && filteredPolicies.length > 0 ? (
+                      <CheckSquare className="w-4 h-4 text-blue-600" />
+                    ) : (
+                      <Square className="w-4 h-4" />
+                    )}
+                  </button>
+                </th>
+                <th className={th}>Tipo Doc</th>
+                <th className={th}>Asegurado / Tomador</th>
+                <th className={th} title="Clic en el número para copiarlo">N° Póliza (clic copia)</th>
+                <th className={th}>Endoso</th>
+                <th className={th}>Compañía / Rubro</th>
+                <th className={th}>Nombre Renombrado Final</th>
+                <th className={th}>Estado</th>
+                <th className={`${th} text-right right-0 z-20 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]`}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+              {filteredPolicies.map((item) => {
+                const isSelected = selectedIds.includes(item.id);
+                const isCopied = copiedId === item.id;
+                const isReviewRequired = needsReview(item);
+                const patente = item.vehiculo?.patente;
+
+                return (
+                  <tr
+                    key={item.id}
+                    id={`policy-row-${item.id}`}
+                    onDoubleClick={() => onOpenDetailSheet(item)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      openRowMenu(item, e.clientX, e.clientY);
+                    }}
+                    onKeyDown={(e) => handleRowKeyDown(e, item)}
+                    tabIndex={0}
+                    className={`group transition-colors cursor-pointer select-none sm-focusable ${menuRowId === item.id ? 'sm-target ' : ''}${
+                      isSelected
+                        ? 'bg-blue-50/60 dark:bg-blue-950/30'
+                        : isReviewRequired
+                        ? 'bg-amber-50/30 dark:bg-amber-950/10 hover:bg-amber-50/60 dark:hover:bg-amber-950/20'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <td className="py-[3px] px-2.5 text-center" onClick={(e) => handleToggleSelect(item.id, e)}>
+                      <button type="button" className="p-0.5 text-slate-400 hover:text-blue-600" tabIndex={-1}>
+                        {isSelected ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4" />}
+                      </button>
+                    </td>
+
+                    <td className="py-[3px] px-2.5 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2 py-0 rounded-md text-[11px] font-bold border leading-5 ${getDocTypeBadge(item.tipoDocumento)}`}>
+                        {item.tipoDocumento}
+                      </span>
+                    </td>
+
+                    <td
+                      className="py-[3px] px-2.5 max-w-[15rem] truncate"
+                      title={patente ? `${item.asegurado} — Patente ${patente} (${item.vehiculo?.marca ?? ''} ${item.vehiculo?.modelo ?? ''})` : item.asegurado}
                     >
-                      {selectedIds.length === filteredPolicies.length && filteredPolicies.length > 0 ? (
-                        <CheckSquare className="w-4 h-4 text-blue-600" />
-                      ) : (
-                        <Square className="w-4 h-4" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="py-3 px-3">Tipo Doc</th>
-                  <th className="py-3 px-3">Asegurado / Tomador</th>
-                  <th className="py-3 px-3">N° Póliza (Click copiar)</th>
-                  <th className="py-3 px-3">Endoso</th>
-                  <th className="py-3 px-3">Compañía / Rubro</th>
-                  <th className="py-3 px-3">Nombre Renombrado Final</th>
-                  <th className="py-3 px-3">Estado</th>
-                  <th className="py-3 px-3 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                {filteredPolicies.map((item) => {
-                  const isSelected = selectedIds.includes(item.id);
-                  const isCopied = copiedId === item.id;
-                  const isReviewRequired = item.status === 'Revisión Requerida' || item.confianza === 'Baja';
+                      <span className="font-bold text-slate-900 dark:text-white uppercase tracking-tight">{item.asegurado}</span>
+                      {patente && <span className="ml-2 text-[10px] text-slate-400 font-mono">{patente}</span>}
+                    </td>
 
-                  return (
-                    <tr
-                      key={item.id}
-                      id={`policy-row-${item.id}`}
-                      onDoubleClick={() => onOpenDetailSheet(item)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        openRowMenu(item, e.clientX, e.clientY);
-                      }}
-                      onKeyDown={(e) => handleRowKeyDown(e, item)}
-                      tabIndex={0}
-                      className={`group transition-colors cursor-pointer select-none sm-focusable ${
-                        menuRowId === item.id ? 'sm-target ' : ''
-                      }${
-                        isSelected
-                          ? 'bg-blue-50/60 dark:bg-blue-950/30'
-                          : isReviewRequired
-                          ? 'bg-amber-50/30 dark:bg-amber-950/10 hover:bg-amber-50/60 dark:hover:bg-amber-950/20'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                      }`}
-                      title="Doble clic para ver la ficha completa del documento"
-                    >
-                      {/* Checkbox */}
-                      <td className="py-3.5 px-3 text-center" onClick={(e) => handleToggleSelect(item.id, e)}>
-                        <button className="p-0.5 text-slate-400 hover:text-blue-600">
-                          {isSelected ? (
-                            <CheckSquare className="w-4 h-4 text-blue-600" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
-                        </button>
-                      </td>
-
-                      {/* Tipo Documento */}
-                      <td className="py-3.5 px-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getDocTypeBadge(
-                            item.tipoDocumento
-                          )}`}
-                        >
-                          {item.tipoDocumento}
-                        </span>
-                      </td>
-
-                      {/* Asegurado */}
-                      <td className="py-3.5 px-3">
-                        <div className="font-bold text-slate-900 dark:text-white uppercase tracking-tight">
-                          {item.asegurado}
-                        </div>
-                        {item.vehiculo?.patente && (
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            Pat: {item.vehiculo.patente} ({item.vehiculo.marca} {item.vehiculo.modelo})
-                          </div>
+                    <td className="py-[3px] px-2.5 whitespace-nowrap">
+                      <button
+                        type="button"
+                        data-help="copy-policy"
+                        onClick={(e) => handleCopy(e, item)}
+                        className="inline-flex items-center gap-1.5 px-2 py-0 rounded-lg font-mono font-bold text-xs leading-5 bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:text-blue-900 transition-all border border-slate-200 dark:border-slate-700"
+                        title="Clic para copiar el número de póliza al portapapeles"
+                      >
+                        <span>{item.numeroPolizaPadded || item.numeroPoliza}</span>
+                        {isCopied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                        ) : (
+                          <Copy className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
                         )}
-                      </td>
+                      </button>
+                    </td>
 
-                      {/* N° Poliza Clickable Copy */}
-                      <td className="py-3.5 px-3 whitespace-nowrap">
+                    <td className="py-[3px] px-2.5 whitespace-nowrap font-mono text-slate-600 dark:text-slate-300 font-semibold">
+                      {item.numeroEndoso || '00'}
+                    </td>
+
+                    <td className="py-[3px] px-2.5 max-w-[15rem] truncate" title={`${item.compania} · ${item.rubro}`}>
+                      <span className="font-medium text-slate-800 dark:text-slate-200">{item.compania}</span>
+                      <span className="hidden 2xl:inline ml-1.5 text-[10px] text-slate-500 dark:text-slate-400">{item.rubro}</span>
+                    </td>
+
+                    <td className="py-[3px] px-2.5 max-w-[19rem] truncate" title={`${item.finalFileName} — Original: ${item.originalFileName}`}>
+                      <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">{item.finalFileName}</span>
+                    </td>
+
+                    <td className="py-[3px] px-2.5 whitespace-nowrap" data-help="state-chips">
+                      {isReviewRequired ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0 rounded-full text-[10px] leading-5 font-semibold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 animate-pulse">
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>Revisión</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0 rounded-full text-[10px] leading-5 font-semibold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          <Check className="w-3 h-3" />
+                          <span>Listo</span>
+                        </span>
+                      )}
+                      {item.numeroPolizaDe && (
+                        <FloatTip
+                          className="ml-1.5 inline-block align-middle"
+                          content={
+                            <>
+                              <strong className="block mb-0.5">El número no se leyó de este documento.</strong>
+                              Se tomó de <span className="font-mono">{item.numeroPolizaDe}</span>: mismo asegurado y misma vigencia
+                              {item.vigenciaDesde && item.vigenciaHasta ? ` (${item.vigenciaDesde} – ${item.vigenciaHasta})` : ''}. Conviene verificarlo.
+                            </>
+                          }
+                        >
+                          <span
+                            tabIndex={0}
+                            className="inline-flex items-center gap-1 px-2 py-0 rounded-full text-[10px] leading-5 font-semibold bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 cursor-help"
+                          >
+                            <Link2 className="w-3 h-3" />
+                            <span>Póliza de otro doc.</span>
+                          </span>
+                        </FloatTip>
+                      )}
+                    </td>
+
+                    <td className="py-[3px] px-2.5 text-right whitespace-nowrap sticky right-0 z-[5] bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]">
+                      <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={(e) => handleCopy(e, item)}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg font-mono font-bold text-xs bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:text-blue-900 transition-all border border-slate-200 dark:border-slate-700"
-                          title="Haz clic para copiar el número de póliza al portapapeles"
+                          data-help="row-view"
+                          onClick={() => onOpenDetailSheet(item)}
+                          className="p-1 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          title="Ver Ficha Extraída (Doble Clic)"
                         >
-                          <span>{item.numeroPolizaPadded || item.numeroPoliza}</span>
-                          {isCopied ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
-                          ) : (
-                            <Copy className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
-                          )}
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
-                      </td>
-
-                      {/* Endoso */}
-                      <td className="py-3.5 px-3 whitespace-nowrap font-mono text-slate-600 dark:text-slate-300 font-semibold">
-                        {item.numeroEndoso || '00'}
-                      </td>
-
-                      {/* Compania & Rubro */}
-                      <td className="py-3.5 px-3">
-                        <div className="font-medium text-slate-800 dark:text-slate-200">
-                          {item.compania}
-                        </div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                          {item.rubro}
-                        </div>
-                      </td>
-
-                      {/* Nombre Renombrado */}
-                      <td className="py-3.5 px-3 max-w-[220px]">
-                        <div
-                          className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate"
-                          title={item.finalFileName}
+                        <button
+                          type="button"
+                          data-help="row-preview"
+                          onClick={() => onPreviewDocument(item)}
+                          className="p-1 rounded-lg text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors"
+                          title="Previsualizar el PDF original"
                         >
-                          {item.finalFileName}
-                        </div>
-                        <div
-                          className="text-[10px] text-slate-400 truncate"
-                          title={`Original: ${item.originalFileName}`}
+                          <ScanSearch className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          data-help="row-edit"
+                          onClick={() => onOpenEditModal(item)}
+                          className="p-1 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
+                          title="Editar Datos o Renombrado Manual"
                         >
-                          Orig: {item.originalFileName}
-                        </div>
-                      </td>
-
-                      {/* Estado */}
-                      <td className="py-3.5 px-3 whitespace-nowrap">
-                        {isReviewRequired ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 animate-pulse">
-                            <AlertTriangle className="w-3 h-3" />
-                            <span>Revisión</span>
-                          </span>
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        {isElectron() && item.savedToDisk ? (
+                          <button
+                            type="button"
+                            data-help="row-folder-download"
+                            onClick={() => onShowInFolder(item)}
+                            className="p-1 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+                            title="Ya guardado en la carpeta de destino — mostrar en el explorador"
+                          >
+                            <FolderOutput className="w-3.5 h-3.5" />
+                          </button>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                            <Check className="w-3 h-3" />
-                            <span>Listo</span>
-                          </span>
+                          <button
+                            type="button"
+                            data-help="row-folder-download"
+                            onClick={() => onDownloadSingle(item)}
+                            className="p-1 rounded-lg text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                            title="Descargar PDF Renombrado"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
                         )}
-                      </td>
-
-                      {/* Acciones */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
-                        <div
-                          className="flex items-center justify-end gap-1"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          data-help="row-delete"
+                          onClick={() => onDeletePolicy(item.id)}
+                          className="p-1 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                          title="Eliminar del historial (Supr)"
                         >
-                          <button
-                            onClick={() => onOpenDetailSheet(item)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            title="Ver Ficha Extraída (Doble Clic)"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => onPreviewDocument(item)}
-                            className="p-1.5 rounded-lg text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors"
-                            title="Previsualizar el PDF original"
-                          >
-                            <ScanSearch className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => onOpenEditModal(item)}
-                            className="p-1.5 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
-                            title="Editar Datos o Renombrado Manual"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-
-                          {isElectron() && item.savedToDisk ? (
-                            <button
-                              onClick={() => onShowInFolder(item)}
-                              className="p-1.5 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
-                              title="Ya guardado en la carpeta de destino — mostrar en el explorador"
-                            >
-                              <FolderOutput className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => onDownloadSingle(item)}
-                              className="p-1.5 rounded-lg text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
-                              title="Descargar PDF Renombrado"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => onDeletePolicy(item.id)}
-                            className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                            title="Eliminar del historial"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

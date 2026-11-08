@@ -85,7 +85,11 @@ export interface LoadedHistory {
  * localStorage is what used to fill its ~5 MB quota and stop the history from
  * saving) out of the record. Anything unreadable yields an empty history.
  */
-export function loadHistory(storage: Pick<Storage, 'getItem'>, now: number = Date.now()): LoadedHistory {
+export function loadHistory(
+  storage: Pick<Storage, 'getItem'>,
+  now: number = Date.now(),
+  days: number = HISTORY_RETENTION_DAYS
+): LoadedHistory {
   const empty: LoadedHistory = { policies: [], legacyFiles: new Map(), expiredIds: [] };
   try {
     const saved = storage.getItem(HISTORY_STORAGE_KEY);
@@ -93,7 +97,7 @@ export function loadHistory(storage: Pick<Storage, 'getItem'>, now: number = Dat
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return empty;
 
-    const { kept, expired } = splitByRetention(withTimestamps(parsed as StoredPolicy[], now), now);
+    const { kept, expired } = splitByRetention(withTimestamps(parsed as StoredPolicy[], now), now, days);
     const legacyFiles = new Map<string, string>();
     for (const policy of kept) {
       if (policy.fileDataUrl) legacyFiles.set(policy.id, policy.fileDataUrl);

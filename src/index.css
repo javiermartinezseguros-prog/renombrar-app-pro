@@ -49,3 +49,44 @@ html.dark ::-webkit-scrollbar-thumb {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.7);
 }
+
+/* Campos de búsqueda y de datos (norma 10): borde de color suave de 2 px, fondo apenas teñido y halo al hacer clic.
+   El cursor que titila no se toca (no hay caret-color). */
+.field-soft {
+  border: 2px solid rgb(59 130 246 / 0.5);
+  background-color: rgb(239 246 255 / 0.75);
+  color: #0f172a;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+}
+.field-soft::placeholder { color: #64748b; }
+.field-soft:hover { border-color: rgb(37 99 235 / 0.75); }
+.field-soft:focus,
+.field-soft:focus-within,
+.field-soft:focus-visible {
+  outline: none;
+  border-color: #2563eb;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.22);
+}
+html.dark .field-soft {
+  border-color: rgb(96 165 250 / 0.55);
+  background-color: rgb(30 58 138 / 0.2);
+  color: #f8fafc;
+}
+html.dark .field-soft::placeholder { color: #94a3b8; }
+html.dark .field-soft:hover { border-color: rgb(147 197 253 / 0.8); }
+html.dark .field-soft:focus,
+html.dark .field-soft:focus-within,
+html.dark .field-soft:focus-visible {
+  border-color: #60a5fa;
+  background-color: rgb(15 23 42 / 0.9);
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 0.3);
+}
+
+/* La ventana no se mueve entera: la barra de menús y el pie quedan fijos y la tabla se desplaza por dentro. */
+html, body, #root { height: 100%; }
+body { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin, .animate-pulse, .animate-ping, .animate-bounce { animation: none !important; }
+}

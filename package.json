@@ -1,7 +1,7 @@
 {
   "name": "renombrar-app-pro",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "main": "main.cjs",
   "type": "module",
   "scripts": {
@@ -28,6 +28,19 @@
       "package.json",
       "build/icon.ico",
       "release-notes.json"
+    ],
+    "extraResources": [
+      {
+        "from": "modelos",
+        "to": "modelos",
+        "filter": [
+          "*.onnx",
+          "*.wasm",
+          "ejemplos.json",
+          "LICENCIAS_MODELOS.txt",
+          "LEEME.md"
+        ]
+      }
     ],
     "win": {
       "target": "nsis",
@@ -57,6 +70,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "onnxruntime-web": "^1.31.1",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",

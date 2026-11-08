@@ -22,9 +22,33 @@ function inlineBytes(): Plugin {
   };
 }
 
+// onnxruntime-web (Inspecciones) trae su motor WebAssembly de 15 MB y Vite lo copiaría a dist/assets. La app lo recibe
+// de la carpeta «modelos» (wasmBinary, ver src/utils/inspecciones/modelos.ts), así que esa copia sobra y duplicaría
+// el peso del instalador: se cambia la referencia por un texto y Vite no la copia.
+function sinWasmDuplicado(): Plugin {
+  const referencia = 'new URL("ort-wasm-simd-threaded.wasm",import.meta.url).href';
+  return {
+    name: 'sin-wasm-duplicado',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.includes('onnxruntime-web') || !code.includes(referencia)) return null;
+      return { code: code.split(referencia).join('"ort-wasm-simd-threaded.wasm"'), map: null };
+    },
+  };
+}
+
+// Versión y novedades de esta versión: salen de package.json y release-notes.json, así «Acerca de»,
+// la Ayuda y «Novedades» nunca quedan con un número viejo.
+const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8'));
+const releaseNotes = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'release-notes.json'), 'utf8'));
+
 export default defineConfig({
   base: './',
-  plugins: [inlineBytes(), react(), tailwindcss()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __RELEASE_NOTES__: JSON.stringify(Array.isArray(releaseNotes[pkg.version]) ? releaseNotes[pkg.version] : []),
+  },
+  plugins: [inlineBytes(), sinWasmDuplicado(), react(), tailwindcss()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),

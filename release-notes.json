@@ -32,5 +32,17 @@
     "Corregido: San Cristóbal ya no se detecta por el barrio \"San Cristóbal\" de una dirección.",
     "Corregido: el nombre del asegurado se limpia (corta en campos vecinos como CLIENTE, D.N.I. o CUIT y descarta frases que no son nombres).",
     "Nuevo: cuando una tarjeta de ATM escaneada no deja leer el número de póliza, la app lo completa con el de otro documento del mismo asegurado y la misma vigencia (siempre que haya una sola póliza posible). La nota queda en la ficha del documento. Si hay dudas, no inventa nada y queda para revisar."
+  ],
+  "1.2.0": [
+    "Nuevo: barra de menú propia (Archivo · Ver · Configuración · Ayuda), con letra subrayada para Alt, F10 y los atajos Ctrl+O, Ctrl+F, Ctrl+, y F1.",
+    "Pantalla más ordenada: todo entra en una sola pantalla de 1366 × 768 sin mover la ventana. La tabla tiene su propio marco, con los títulos fijos y 14 filas o más a la vista.",
+    "Nuevo: Configuración con parámetros que se cambian desde la app (días que se guarda el historial y espera antes de leer un archivo nuevo), con su rango, valor de fábrica y efecto inmediato.",
+    "Nuevo: el buscador sugiere personas desde la 2.ª letra (sin importar tildes ni el orden de nombre y apellido), con ↑ ↓, Enter, Tab y Esc.",
+    "Nuevo: etiqueta azul «Póliza de otro doc.» en la tabla y nota completa en la ficha cuando el número de una tarjeta ATM escaneada se tomó de otro documento.",
+    "Nuevo: Ayuda con el paso a paso de cada botón y parámetro (F1) y apartado «Acerca de».",
+    "Nuevo: sección «Inspecciones» (botones Pólizas | Inspecciones debajo de los menús) para revisar las fotos de UN vehículo: lee la fecha, la patente y renombra las fotos como PATENTE-TOMA.jpg en una carpeta aparte, sin tocar las originales. Reconoce sola la toma de cada foto y avisa si corta una parte del vehículo o si un costado salió en diagonal y no de perfil. Todo en la PC, sin internet.",
+    "Nuevo: el avance de la lectura muestra el porcentaje, el tiempo que falta y un botón Detener; también se ve cuando el escaneo automático está leyendo y cuando se arma el ZIP.",
+    "Menú del clic derecho: íconos propios en todas las opciones (también en «Copiar»), se desplaza si es más alto que la pantalla, y ahora también sale en un espacio vacío de la ventana.",
+    "Corregido: al completar el número de póliza de una tarjeta ATM, el aviso podía salir dos veces y, en la app instalada, dejar una copia «(2)» en la carpeta de Destino."
   ]
 }

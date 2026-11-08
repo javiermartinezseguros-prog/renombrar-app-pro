@@ -16,6 +16,7 @@ import {
   Download,
   ScanSearch,
   FolderOutput,
+  Link2,
 } from 'lucide-react';
 import { ExtractedPolicyData } from '../types';
 import { isElectron } from '../utils/electronBridge';
@@ -285,12 +286,26 @@ const PolicyInfoSheetModalContent: React.FC<PolicyInfoSheetModalContentProps> = 
               </span>
             </div>
 
-            {policy.observaciones && (
+            {policy.observaciones && !policy.numeroPolizaDe && (
               <p className="text-slate-500 dark:text-slate-400 italic text-[11px] max-w-md truncate">
                 {policy.observaciones}
               </p>
             )}
           </div>
+
+          {/* El número salió de otro documento (emparejamiento de ATM): nota completa, no cortada */}
+          {policy.numeroPolizaDe && (
+            <div
+              data-testid="nota-poliza-de-otro-doc"
+              className="flex items-start gap-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-3 py-2.5 text-xs text-blue-900 dark:text-blue-200"
+            >
+              <Link2 className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+              <span>
+                El OCR no pudo leer el número de póliza en este documento: se tomó de «{policy.numeroPolizaDe}» (mismo asegurado y misma
+                vigencia). Conviene verificarlo.
+              </span>
+            </div>
+          )}
 
           {/* Actions Bottom Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">

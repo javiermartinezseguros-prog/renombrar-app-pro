@@ -4,7 +4,7 @@
  * Lo que dice cada menú está en menuModel.ts.
  */
 import './context-menu.css';
-import { ACCENT_FALLBACK, MenuEntry, MenuItem, normalizeAccent, onAccentColor, parseLabel } from './menuModel';
+import { ACCENT_FALLBACK, ICON, MenuEntry, MenuItem, normalizeAccent, onAccentColor, parseLabel } from './menuModel';
 
 const OPEN_MS = 320; // crece de 94 % a 100 % con un poco de rebote
 const FADE_MS = 140; // aparece con opacidad
@@ -30,6 +30,8 @@ const state = {
   root: null as Level | null,
   levels: [] as Level[],
   onClose: null as null | ((chosen: boolean) => void),
+  /** Flecha izquierda/derecha sin submenú que abrir: pasa al menú vecino de la barra. */
+  onHorizontal: null as null | ((dir: -1 | 1) => void),
   anchor: null as HTMLElement | null,
   hoverTimer: 0 as number,
   closing: false,
@@ -66,6 +68,10 @@ function build(items: MenuEntry[], isSub: boolean): Level {
     row.setAttribute('role', 'menuitem');
     row.setAttribute('aria-disabled', it.off ? 'true' : 'false');
     row.id = 'sm-item-' + ++state.seq;
+    if (it.checked !== undefined) {
+      row.setAttribute('role', 'menuitemradio');
+      row.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+    }
     if (it.sub) {
       row.setAttribute('aria-haspopup', 'menu');
       row.setAttribute('aria-expanded', 'false');
@@ -86,6 +92,13 @@ function build(items: MenuEntry[], isSub: boolean): Level {
       label.append(u, after);
     }
     row.appendChild(label);
+    if (it.checked !== undefined) {
+      const c = document.createElement('span');
+      c.className = 'sm-check' + (it.checked ? '' : ' sm-check-off');
+      c.setAttribute('aria-hidden', 'true');
+      c.textContent = ICON.checkMark;
+      row.appendChild(c);
+    }
     if (it.key) {
       const k = document.createElement('span');
       k.className = 'sm-key';
@@ -110,6 +123,8 @@ function build(items: MenuEntry[], isSub: boolean): Level {
 function place(level: Level, x: number, y: number, anchorLeft: number | null): void {
   const el = level.el;
   document.body.appendChild(el);
+  // un menú más alto que la pantalla se desplaza por dentro (norma 2): alto máximo = alto de la ventana − 16 px
+  el.style.maxHeight = Math.max(80, window.innerHeight - 16) + 'px';
   const w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight, pad = 8;
   let left = x, top = y, ox = 'left', oy = 'top';
   // sin lugar a la derecha: se abre hacia la izquierda; sin lugar abajo: hacia arriba (nace siempre en el punto del clic)
@@ -184,6 +199,17 @@ function step(level: Level, dir: 1 | -1): void {
   }
 }
 
+/** Re Pág / Av Pág: salta unas cuantas filas (las que entran a la vista) y cae en una opción disponible. */
+function pageStep(level: Level, dir: 1 | -1): void {
+  const n = level.rows.length;
+  if (!n) return;
+  const rowH = level.rows[0].row.offsetHeight || 40;
+  const per = Math.max(1, Math.floor(level.el.clientHeight / rowH) - 1);
+  let i = Math.min(n - 1, Math.max(0, (level.active < 0 ? (dir > 0 ? -1 : n) : level.active) + dir * per));
+  for (let c = 0; c < n && !enabled(level.rows[i]); c++) i = Math.min(n - 1, Math.max(0, i - dir));
+  if (enabled(level.rows[i])) setActive(level, i, true);
+}
+
 function openSub(level: Level, entry: Entry, keyboard = false): void {
   if (level.sub && level.sub.parentRow === entry.row) return;
   closeSub(level);
@@ -250,15 +276,23 @@ function onKey(e: KeyboardEvent): void {
   if (k === 'Escape') { stop(); if (level.isSub) closeSub(state.levels[state.levels.length - 2]); else close(); return; }
   if (k === 'ArrowDown') { stop(); step(level, 1); return; }
   if (k === 'ArrowUp') { stop(); step(level, -1); return; }
+  if (k === 'PageDown') { stop(); pageStep(level, 1); return; }
+  if (k === 'PageUp') { stop(); pageStep(level, -1); return; }
   if (k === 'Home') { stop(); setActive(level, firstEnabled(level, 1), true); return; }
   if (k === 'End') { stop(); setActive(level, firstEnabled(level, -1), true); return; }
   if (k === 'ArrowRight') {
     stop();
     const cur = level.rows[level.active];
     if (cur && cur.it.sub && !cur.it.off) openSub(level, cur, true);
+    else if (!level.isSub && state.onHorizontal) state.onHorizontal(1);
     return;
   }
-  if (k === 'ArrowLeft') { stop(); if (level.isSub) closeSub(state.levels[state.levels.length - 2]); return; }
+  if (k === 'ArrowLeft') {
+    stop();
+    if (level.isSub) closeSub(state.levels[state.levels.length - 2]);
+    else if (state.onHorizontal) state.onHorizontal(-1);
+    return;
+  }
   if (k === 'Enter' || k === ' ') { stop(); choose(level, level.rows[level.active]); return; }
   if (k === 'Tab') { stop(); return; }
   if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -296,7 +330,7 @@ function close(chosen = false): void {
   state.closing = true;
   detach();
   const levels = state.levels.slice(), cb = state.onClose, anchor = state.anchor;
-  state.root = null; state.levels = []; state.onClose = null; state.anchor = null;
+  state.root = null; state.levels = []; state.onClose = null; state.onHorizontal = null; state.anchor = null;
   levels.forEach((l, i) => animateOut(l.el, () => { l.el.remove(); if (i === levels.length - 1) state.closing = false; }));
   if (cb) cb(chosen);
   if (anchor && !chosen) anchor.focus({ preventScroll: true });
@@ -309,10 +343,16 @@ export interface OpenMenuOptions {
   items: MenuEntry[];
   /** Si se abrió con el teclado: el menú nace debajo de este elemento y se marca la primera opción. */
   anchor?: HTMLElement | null;
+  /** Con `anchor`: el menú nace pegado al borde izquierdo y debajo del elemento (botón de la barra de menús). */
+  anchorBelow?: boolean;
+  /** Con `anchor`: marcar la primera opción al abrir (teclado). Por defecto sí; con el mouse se pasa false. */
+  highlightFirst?: boolean;
+  /** Flecha izquierda/derecha en el primer nivel: pasar al menú vecino de la barra. */
+  onHorizontal?: (dir: -1 | 1) => void;
   onClose?: (chosen: boolean) => void;
 }
 
-export function openContextMenu({ x, y, items, anchor = null, onClose }: OpenMenuOptions): void {
+export function openContextMenu({ x, y, items, anchor = null, anchorBelow = false, highlightFirst = true, onHorizontal, onClose }: OpenMenuOptions): void {
   // un segundo clic derecho lo mueve al nuevo punto, sin esperar a que termine
   let fromOpacity = 0;
   if (state.root) {
@@ -320,6 +360,7 @@ export function openContextMenu({ x, y, items, anchor = null, onClose }: OpenMen
     state.levels.slice(1).forEach((l) => l.el.remove());
     const old = state.root, cb = state.onClose;
     state.onClose = null;
+    state.onHorizontal = null;
     if (cb) cb(false);
     old.el.getAnimations().forEach((a) => a.cancel());
     old.el.remove();
@@ -328,8 +369,11 @@ export function openContextMenu({ x, y, items, anchor = null, onClose }: OpenMen
   }
   state.closing = false;
   const level = build(items, false);
-  state.root = level; state.levels = [level]; state.onClose = onClose || null; state.anchor = anchor;
-  if (anchor) { const r = anchor.getBoundingClientRect(); x = r.left + 24; y = r.bottom - 4; }
+  state.root = level; state.levels = [level]; state.onClose = onClose || null; state.onHorizontal = onHorizontal || null; state.anchor = anchor;
+  if (anchor) {
+    const r = anchor.getBoundingClientRect();
+    if (anchorBelow) { x = r.left; y = r.bottom; } else { x = r.left + 24; y = r.bottom - 4; }
+  }
   place(level, x, y, null);
   animateIn(level.el, fromOpacity);
   wire(level);
@@ -339,7 +383,7 @@ export function openContextMenu({ x, y, items, anchor = null, onClose }: OpenMen
   window.addEventListener('resize', onBlur);
   window.addEventListener('wheel', onWheel, { capture: true, passive: true });
   level.el.focus({ preventScroll: true });
-  if (anchor) setActive(level, firstEnabled(level, 1), true);
+  if (anchor && highlightFirst) setActive(level, firstEnabled(level, 1), true);
 }
 
 export const closeContextMenu = () => close();

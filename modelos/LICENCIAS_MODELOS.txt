@@ -1,0 +1,27 @@
+MODELOS Y MOTOR DE RECONOCIMIENTO DE «INSPECCIONES» (RenombrarAPP Pro)
+=====================================================================
+
+Todo se ejecuta en esta PC. Ninguna foto se envía a internet.
+
+1) yolos-tiny_cuantizado.onnx  (detector de vehículos, 9,7 MB)
+   Modelo: YOLOS tiny (hustvl/yolos-tiny), licencia Apache-2.0.
+   Conversión a ONNX cuantizada: Xenova/yolos-tiny (Hugging Face), sin cambios de licencia.
+   Origen: https://huggingface.co/Xenova/yolos-tiny
+   Sirve para ver dónde está el vehículo en la foto y avisar si la corta.
+
+2) dinov2-small_cuantizado.onnx  (reconocedor de tomas, 24,5 MB)
+   Modelo: DINOv2 small (facebook/dinov2-small), licencia Apache-2.0.
+   Conversión a ONNX cuantizada: Xenova/dinov2-small (Hugging Face), sin cambios de licencia.
+   Origen: https://huggingface.co/Xenova/dinov2-small
+   Sirve para comparar cada foto con las muestras y decir qué toma es.
+
+3) ort-wasm-simd-threaded.wasm  (motor de ejecución, 14,8 MB)
+   ONNX Runtime Web (onnxruntime-web), licencia MIT, Microsoft.
+   Copiado de node_modules/onnxruntime-web/dist (la misma versión que package.json).
+
+Texto de la licencia Apache-2.0: https://www.apache.org/licenses/LICENSE-2.0
+Texto de la licencia MIT: https://opensource.org/license/mit
+
+Sumas de control (SHA-256) de los modelos incluidos:
+  yolos-tiny_cuantizado.onnx   82b5c1de8aaaffd763c67d67b09b742a1c53628acfee3077af3fa59233e86b6b
+  dinov2-small_cuantizado.onnx 3afdc8bc63b50558d6e5770f5b799bb82455c2311183a2de43803f343a29d917

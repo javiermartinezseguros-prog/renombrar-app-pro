@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   saveFileToFolder: (folderPath, fileName, dataUrl, oldFileName) =>
     ipcRenderer.invoke('save-file-to-folder', folderPath, fileName, dataUrl, oldFileName),
+  // Inspecciones (fotos de vehículos): listar, leer y copiar con el nombre nuevo, todo en esta PC.
+  listPhotoFiles: (folderPath) => ipcRenderer.invoke('list-photo-files', folderPath),
+  readPhotoFile: (filePath) => ipcRenderer.invoke('read-photo-file', filePath),
+  savePhotoToFolder: (folderPath, fileName, dataUrl) => ipcRenderer.invoke('save-photo-to-folder', folderPath, fileName, dataUrl),
+  readModelFile: (name) => ipcRenderer.invoke('read-model-file', name),
   showInFolder: (filePath) => ipcRenderer.invoke('show-in-folder', filePath),
   openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
   getAccentColor: () => ipcRenderer.invoke('get-accent-color'),
@@ -20,8 +25,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('accent-color-changed', listener);
     return () => ipcRenderer.removeListener('accent-color-changed', listener);
   },
-  startFolderWatch: (originPath, destinationPath) =>
-    ipcRenderer.invoke('start-folder-watch', originPath, destinationPath),
+  startFolderWatch: (originPath, destinationPath, waitSeconds) =>
+    ipcRenderer.invoke('start-folder-watch', originPath, destinationPath, waitSeconds),
   stopFolderWatch: () => ipcRenderer.invoke('stop-folder-watch'),
   deleteOriginFile: (filePath) => ipcRenderer.invoke('delete-origin-file', filePath),
   // History PDF copies (kept at most 7 days, see src/utils/history.ts).

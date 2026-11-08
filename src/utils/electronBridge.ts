@@ -19,6 +19,13 @@ export interface FolderPdfFile {
   path?: string;
 }
 
+export interface PhotoFileInfo {
+  path: string;
+  name: string;
+  size: number;
+  mtimeMs: number;
+}
+
 export interface AppUpdatedInfo {
   version: string;
   notes: string[];
@@ -33,11 +40,15 @@ interface ElectronAPI {
     dataUrl: string,
     oldFileName?: string
   ) => Promise<SaveFileResult>;
+  listPhotoFiles: (folderPath: string) => Promise<{ success: boolean; files?: PhotoFileInfo[]; error?: string }>;
+  readPhotoFile: (filePath: string) => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
+  savePhotoToFolder: (folderPath: string, fileName: string, dataUrl: string) => Promise<SaveFileResult>;
+  readModelFile: (name: string) => Promise<{ success: boolean; bytes?: Uint8Array; error?: string }>;
   showInFolder: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   openFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
   getAccentColor: () => Promise<string | null>;
   onAccentColorChanged: (callback: (color: string | null) => void) => () => void;
-  startFolderWatch: (originPath: string, destinationPath: string) => Promise<{ success: boolean; error?: string }>;
+  startFolderWatch: (originPath: string, destinationPath: string, waitSeconds?: number) => Promise<{ success: boolean; error?: string }>;
   stopFolderWatch: () => Promise<{ success: boolean }>;
   deleteOriginFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   backupSave: (id: string, dataUrl: string) => Promise<{ success: boolean; error?: string }>;
@@ -104,11 +115,15 @@ export async function showInFolder(filePath: string): Promise<{ success: boolean
  * one-shot read. Only one watch runs at a time; starting a new one replaces
  * whatever was running.
  */
-export async function startFolderWatch(originPath: string, destinationPath: string): Promise<{ success: boolean; error?: string }> {
+export async function startFolderWatch(
+  originPath: string,
+  destinationPath: string,
+  waitSeconds?: number
+): Promise<{ success: boolean; error?: string }> {
   if (!window.electronAPI) {
     return { success: false, error: 'Disponible solo en la app de escritorio.' };
   }
-  return window.electronAPI.startFolderWatch(originPath, destinationPath);
+  return window.electronAPI.startFolderWatch(originPath, destinationPath, waitSeconds);
 }
 
 /** Stops the active folder watch, if any (desktop app only). */
@@ -200,4 +215,33 @@ export async function getSystemAccent(): Promise<string | null> {
 export function onSystemAccentChanged(callback: (color: string | null) => void): () => void {
   if (!window.electronAPI) return () => {};
   return window.electronAPI.onAccentColorChanged(callback);
+}
+
+// ---- Inspecciones (fotos de vehículos) ----
+
+/** Imágenes que hay en una carpeta (solo el primer nivel), en orden de nombre. */
+export async function listPhotoFiles(folderPath: string): Promise<{ success: boolean; files: PhotoFileInfo[]; error?: string }> {
+  if (!window.electronAPI) return { success: false, files: [], error: 'Disponible solo en la app de escritorio.' };
+  const r = await window.electronAPI.listPhotoFiles(folderPath);
+  return { success: r.success, files: r.files ?? [], error: r.error };
+}
+
+/** Contenido de una foto como data URL (desktop app only). */
+export async function readPhotoFile(filePath: string): Promise<{ success: boolean; dataUrl?: string; error?: string }> {
+  if (!window.electronAPI) return { success: false, error: 'Disponible solo en la app de escritorio.' };
+  return window.electronAPI.readPhotoFile(filePath);
+}
+
+/** Copia una foto con su nombre nuevo a la carpeta de salida, sin subcarpetas y sin pisar nada. */
+export async function savePhotoToDestination(folderPath: string, fileName: string, dataUrl: string): Promise<SaveFileResult> {
+  if (!window.electronAPI) return { success: false, error: 'Disponible solo en la app de escritorio.' };
+  return window.electronAPI.savePhotoToFolder(folderPath, fileName, dataUrl);
+}
+
+/** Bytes de un archivo de la carpeta «modelos» (los modelos de reconocimiento y el motor), leído por el proceso principal. */
+export async function readModelFile(name: string): Promise<Uint8Array> {
+  if (!window.electronAPI) throw new Error('Disponible solo en la app de escritorio.');
+  const r = await window.electronAPI.readModelFile(name);
+  if (!r.success || !r.bytes) throw new Error(r.error || 'No se pudo leer el modelo.');
+  return r.bytes;
 }

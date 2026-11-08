@@ -79,14 +79,15 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
   return (
     <div
       id="permanent-folder-status-bar"
-      className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-6 lg:px-8 py-2 text-xs text-slate-600 dark:text-slate-300"
+      className="shrink-0 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800/80 px-4 py-1.5 text-xs text-slate-600 dark:text-slate-300"
     >
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
         {/* Left: Origin & Destination Paths */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-4 font-mono text-[11px] sm:text-xs">
           {/* Origin Folder */}
           <div
             id="origin-folder-badge"
+            data-help="origin-folder-badge"
             {...folderMenuHandlers('origin', originPath)}
             className={`sm-focusable ${menuFolder === 'origin' ? 'sm-target ' : ''}flex items-center gap-1.5 bg-white dark:bg-slate-800/90 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700/80 shadow-2xs`}
             title={`Carpeta de Entrada: ${folderConfig.originPath}`}
@@ -103,6 +104,7 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
           {/* Destination Folder */}
           <div
             id="destination-folder-badge"
+            data-help="destination-folder-badge"
             {...folderMenuHandlers('destination', destinationPath)}
             className={`sm-focusable ${menuFolder === 'destination' ? 'sm-target ' : ''}flex items-center gap-1.5 bg-white dark:bg-slate-800/90 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700/80 shadow-2xs`}
             title={`Carpeta de Destino: ${folderConfig.destinationPath}`}
@@ -123,6 +125,7 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
           {onScanAndProcessFolder && (
             <button
               id="btn-scan-and-process-folder"
+              data-help="btn-scan-and-process-folder"
               onClick={onScanAndProcessFolder}
               disabled={isScanning}
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold disabled:opacity-50 shadow-2xs transition-all active:scale-[0.97] ${
@@ -161,7 +164,7 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
             </button>
           )}
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          <div data-help="folder-counts" className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
             <span className="inline-flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               {processedCount} listos
@@ -176,6 +179,7 @@ export const FolderStatusBar: React.FC<FolderStatusBarProps> = ({
 
           <button
             id="btn-quick-change-folders"
+            data-help="btn-quick-change-folders"
             onClick={onOpenConfig}
             className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors"
           >

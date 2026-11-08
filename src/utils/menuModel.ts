@@ -19,6 +19,10 @@ export interface MenuItem {
   danger?: boolean;
   /** Submenú. */
   sub?: MenuEntry[];
+  /** Opción de la barra de menús que se tilda (tema, tamaño de letra…): se dibuja con una marca a la derecha. */
+  checked?: boolean;
+  /** Identificador estable: la prueba de la Ayuda comprueba que cada opción de la barra tiene su explicación. */
+  id?: string;
 }
 export type MenuEntry = MenuItem | '-';
 
@@ -39,6 +43,36 @@ export const ICON = {
   cut: '',
   paste: '',
   undo: '',
+  // Para el submenú Copiar y la barra de menús (norma 13: cada opción con su ícono propio).
+  tag: '',
+  rename: '',
+  person: '',
+  car: '',
+  company: '',
+  add: '',
+  folderOpen: '',
+  folderIn: '',
+  sync: '',
+  stop: '',
+  power: '',
+  search: '',
+  apps: '',
+  settings: '',
+  font: '',
+  fontDown: '',
+  zoomIn: '',
+  fontUp: '',
+  palette: '',
+  desktop: '',
+  moon: '',
+  sun: '',
+  contrast: '',
+  help: '',
+  news: '',
+  info: '',
+  history: '',
+  checkMark: '',
+  chevron: '',
 } as const;
 
 /** "&Editar" -> { before: '', mnemonic: 'E', after: 'ditar', letter: 'e' } */
@@ -118,11 +152,11 @@ export function buildRowMenu(
       label: '&Copiar',
       icon: ICON.copy,
       sub: [
-        { label: 'N° de &póliza (9 dígitos)', key: 'Ctrl+C', run: a.copyPolicyNumber },
-        { label: '&Nombre final del archivo', run: () => a.copy(p.finalFileName, 'el nombre del archivo') },
-        { label: '&Asegurado', run: () => a.copy(p.asegurado, 'el asegurado') },
-        { label: 'Pa&tente', off: !patente, run: () => a.copy(patente, 'la patente') },
-        { label: '&Compañía', run: () => a.copy(p.compania, 'la compañía') },
+        { label: 'N° de &póliza (9 dígitos)', icon: ICON.tag, key: 'Ctrl+C', run: a.copyPolicyNumber },
+        { label: '&Nombre final del archivo', icon: ICON.rename, run: () => a.copy(p.finalFileName, 'el nombre del archivo') },
+        { label: '&Asegurado', icon: ICON.person, run: () => a.copy(p.asegurado, 'el asegurado') },
+        { label: 'Pa&tente', icon: ICON.car, off: !patente, run: () => a.copy(patente, 'la patente') },
+        { label: '&Compañía', icon: ICON.company, run: () => a.copy(p.compania, 'la compañía') },
       ],
     },
     o.canShowInFolder
@@ -156,7 +190,7 @@ export function buildMultiMenu(policies: ExtractedPolicyData[], a: MultiMenuActi
     },
     {
       label: `Copiar los &nombres finales (${n})`,
-      icon: ICON.copy,
+      icon: ICON.rename,
       run: () => a.copy(policies.map((p) => p.finalFileName).join('\n'), `los ${n} nombres de archivo`),
     },
     '-',
@@ -207,5 +241,247 @@ export function buildFolderMenu(o: { canOpen: boolean }, a: FolderMenuActions): 
     { label: '&Copiar ruta', icon: ICON.copy, run: a.copyPath },
     '-',
     { label: 'Ca&mbiar carpeta…', icon: ICON.edit, run: a.change },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Barra de menús de la ventana (Archivo · Ver · Configuración · Ayuda)
+// ---------------------------------------------------------------------------
+
+export type ThemeChoice = 'system' | 'dark' | 'light' | 'high-contrast';
+export type ZoomChoice = 'normal' | 'large' | 'xlarge';
+
+export interface BarState {
+  /** Sección a la vista (si falta, Pólizas). */
+  section?: 'polizas' | 'inspecciones';
+  /** Inspecciones: hay fotos en pantalla / se puede renombrar / está leyendo. */
+  inspHayFotos?: boolean;
+  inspPuedeRenombrar?: boolean;
+  inspOcupado?: boolean;
+  watching: boolean;
+  canOpenFolders: boolean;
+  hasPolicies: boolean;
+  reviewOnly: boolean;
+  theme: ThemeChoice;
+  zoom: ZoomChoice;
+}
+
+export interface InspBarActions {
+  leer: () => void;
+  agregarFotos: () => void;
+  agregarCarpeta: () => void;
+  renombrar: () => void;
+  nuevo: () => void;
+  verMuestras: () => void;
+  abrirSalida: () => void;
+}
+
+export interface BarActions {
+  /** Acciones de la sección Inspecciones. */
+  insp?: InspBarActions;
+  addFiles: () => void;
+  addFolder: () => void;
+  toggleWatch: () => void;
+  exportZip: () => void;
+  exit: () => void;
+  focusSearch: () => void;
+  toggleReviewOnly: () => void;
+  showAll: () => void;
+  openOrigin: () => void;
+  openDestination: () => void;
+  openFolders: () => void;
+  setZoom: (z: ZoomChoice) => void;
+  setTheme: (t: ThemeChoice) => void;
+  openSettings: () => void;
+  openHelp: () => void;
+  openWhatsNew: () => void;
+  openAbout: () => void;
+}
+
+export interface BarMenu {
+  id: 'archivo' | 'ver' | 'configuracion' | 'ayuda';
+  /** Con la letra subrayada: Alt + esa letra abre el menú. */
+  label: string;
+  items: MenuEntry[];
+}
+
+function buildPolizasMenuBar(s: BarState, a: BarActions): BarMenu[] {
+  return [
+    {
+      id: 'archivo',
+      label: '&Archivo',
+      items: [
+        { id: 'add-files', label: '&Agregar archivos PDF…', icon: ICON.add, key: 'Ctrl+O', run: a.addFiles },
+        { id: 'add-folder', label: 'Cargar &carpeta completa…', icon: ICON.folderOpen, key: 'Ctrl+Mayús+O', run: a.addFolder },
+        '-',
+        s.watching
+          ? { id: 'watch', label: 'Detener el escaneo auto&mático', icon: ICON.stop, run: a.toggleWatch }
+          : { id: 'watch', label: 'Activar el escaneo auto&mático', icon: ICON.sync, run: a.toggleWatch },
+        { id: 'export-zip', label: '&Exportar renombrados (ZIP)', icon: ICON.download, key: 'Ctrl+Mayús+E', off: !s.hasPolicies, run: a.exportZip },
+        '-',
+        { id: 'exit', label: '&Salir', icon: ICON.power, key: 'Alt+F4', run: a.exit },
+      ],
+    },
+    {
+      id: 'ver',
+      label: '&Ver',
+      items: [
+        { id: 'focus-search', label: 'Ir al &buscador', icon: ICON.search, key: 'Ctrl+F', run: a.focusSearch },
+        { id: 'review-only', label: 'Solo los &pendientes de revisión', icon: ICON.warn, checked: s.reviewOnly, run: a.toggleReviewOnly },
+        { id: 'show-all', label: 'Mostrar &todos los documentos', icon: ICON.apps, run: a.showAll },
+        '-',
+        { id: 'open-origin', label: 'Abrir carpeta de &Origen', icon: ICON.folder, off: !s.canOpenFolders, run: a.openOrigin },
+        { id: 'open-destination', label: 'Abrir carpeta de &Destino', icon: ICON.folderIn, off: !s.canOpenFolders, run: a.openDestination },
+      ],
+    },
+    {
+      id: 'configuracion',
+      label: '&Configuración',
+      items: [
+        { id: 'folders', label: '&Carpetas de Origen y Destino…', icon: ICON.folderOpen, run: a.openFolders },
+        {
+          id: 'zoom',
+          label: 'Tamaño de la &letra',
+          icon: ICON.font,
+          sub: [
+            { id: 'zoom-normal', label: '&Normal', icon: ICON.fontDown, checked: s.zoom === 'normal', run: () => a.setZoom('normal') },
+            { id: 'zoom-large', label: '&Grande', icon: ICON.fontUp, checked: s.zoom === 'large', run: () => a.setZoom('large') },
+            { id: 'zoom-xlarge', label: '&Muy grande', icon: ICON.zoomIn, checked: s.zoom === 'xlarge', run: () => a.setZoom('xlarge') },
+          ],
+        },
+        {
+          id: 'theme',
+          label: '&Tema de colores',
+          icon: ICON.palette,
+          sub: [
+            { id: 'theme-system', label: '&Sistema', icon: ICON.desktop, checked: s.theme === 'system', run: () => a.setTheme('system') },
+            { id: 'theme-dark', label: '&Oscuro', icon: ICON.moon, checked: s.theme === 'dark', run: () => a.setTheme('dark') },
+            { id: 'theme-light', label: '&Claro', icon: ICON.sun, checked: s.theme === 'light', run: () => a.setTheme('light') },
+            { id: 'theme-contrast', label: '&Alto contraste', icon: ICON.contrast, checked: s.theme === 'high-contrast', run: () => a.setTheme('high-contrast') },
+          ],
+        },
+        '-',
+        { id: 'settings', label: 'Todos los &ajustes…', icon: ICON.settings, key: 'Ctrl+,', run: a.openSettings },
+      ],
+    },
+    {
+      id: 'ayuda',
+      label: 'A&yuda',
+      items: [
+        { id: 'help', label: '&Cómo se usa', icon: ICON.help, key: 'F1', run: a.openHelp },
+        { id: 'whats-new', label: '&Novedades de esta versión', icon: ICON.news, run: a.openWhatsNew },
+        '-',
+        { id: 'about', label: '&Acerca de RenombrarAPP', icon: ICON.info, run: a.openAbout },
+      ],
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Clic derecho en un espacio vacío de la ventana
+// ---------------------------------------------------------------------------
+
+export interface EmptyMenuActions {
+  addFiles: () => void;
+  exportZip: () => void;
+  openSettings: () => void;
+  openHelp: () => void;
+}
+
+export function buildEmptySpaceMenu(o: { hasPolicies: boolean }, a: EmptyMenuActions): MenuEntry[] {
+  return [
+    { id: 'add-files', label: '&Agregar archivos PDF…', icon: ICON.add, key: 'Ctrl+O', run: a.addFiles },
+    { id: 'export-zip', label: '&Exportar renombrados (ZIP)', icon: ICON.download, off: !o.hasPolicies, run: a.exportZip },
+    '-',
+    { id: 'settings', label: 'Todos los a&justes…', icon: ICON.settings, key: 'Ctrl+,', run: a.openSettings },
+    { id: 'help', label: 'Có&mo se usa', icon: ICON.help, key: 'F1', run: a.openHelp },
+  ];
+}
+
+// ---------- Inspecciones (fotos de vehículos) ----------
+
+/** Archivo y Ver de la sección Inspecciones; Configuración y Ayuda son los de siempre. */
+export function buildMenuBar(s: BarState, a: BarActions): BarMenu[] {
+  const bar = buildPolizasMenuBar(s, a);
+  const i = a.insp;
+  if (s.section !== 'inspecciones' || !i) return bar;
+  return bar.map((menu) => {
+    if (menu.id === 'archivo') {
+      return {
+        ...menu,
+        items: [
+          { id: 'insp-leer', label: '&Leer fotos nuevas', icon: ICON.sync, key: 'Ctrl+L', off: s.inspOcupado, run: i.leer },
+          { id: 'insp-add-fotos', label: '&Agregar fotos…', icon: ICON.add, key: 'Ctrl+O', off: s.inspOcupado, run: i.agregarFotos },
+          { id: 'insp-add-carpeta', label: 'Cargar &carpeta de fotos…', icon: ICON.folderOpen, key: 'Ctrl+Mayús+O', off: s.inspOcupado, run: i.agregarCarpeta },
+          '-',
+          { id: 'insp-renombrar', label: '&Renombrar y copiar…', icon: ICON.rename, key: 'Ctrl+Intro', off: !s.inspPuedeRenombrar, run: i.renombrar },
+          { id: 'insp-nuevo', label: '&Nuevo vehículo', icon: ICON.car, key: 'Ctrl+N', off: s.inspOcupado || !s.inspHayFotos, run: i.nuevo },
+          '-',
+          { id: 'exit', label: '&Salir', icon: ICON.power, key: 'Alt+F4', run: a.exit },
+        ] as MenuEntry[],
+      };
+    }
+    if (menu.id === 'ver') {
+      return {
+        ...menu,
+        items: [
+          { id: 'insp-muestras', label: 'Ver las &muestras', icon: ICON.apps, run: i.verMuestras },
+          '-',
+          { id: 'open-origin', label: 'Abrir carpeta de &Origen', icon: ICON.folder, off: !s.canOpenFolders, run: a.openOrigin },
+          { id: 'insp-open-salida', label: 'Abrir carpeta de fotos &renombradas', icon: ICON.folderIn, off: !s.canOpenFolders, run: i.abrirSalida },
+        ] as MenuEntry[],
+      };
+    }
+    return menu;
+  });
+}
+
+export interface InspFotoMenuActions {
+  ver: () => void;
+  cambiarToma: () => void;
+  tambienToma: () => void;
+  marcarRevisada: () => void;
+  verMuestra: () => void;
+  mostrarEnCarpeta: () => void;
+  quitar: () => void;
+}
+
+/** Clic derecho en la foto de una toma. */
+export function buildInspFotoMenu(o: { tieneAviso: boolean; puedeMostrar: boolean; tieneMuestra: boolean }, a: InspFotoMenuActions): MenuEntry[] {
+  return [
+    { id: 'insp-foto-ver', label: '&Ver la foto grande', icon: ICON.view, key: 'Intro', run: a.ver },
+    { id: 'insp-foto-cambiar', label: 'Cambiar la &toma…', icon: ICON.tag, run: a.cambiarToma },
+    { id: 'insp-foto-tambien', label: '&Usar también como otra toma…', icon: ICON.copy, run: a.tambienToma },
+    { id: 'insp-foto-revisada', label: 'Marcar el aviso como &revisado', icon: ICON.checkMark, off: !o.tieneAviso, run: a.marcarRevisada },
+    '-',
+    { id: 'insp-foto-muestra', label: 'Ver la &muestra de esta toma', icon: ICON.doc, off: !o.tieneMuestra, run: a.verMuestra },
+    { id: 'insp-foto-carpeta', label: 'Mostrar en la &carpeta', icon: ICON.folder, off: !o.puedeMostrar, run: a.mostrarEnCarpeta },
+    '-',
+    { id: 'insp-foto-quitar', label: '&Quitar de este vehículo', icon: ICON.trash, key: 'Supr', danger: true, run: a.quitar },
+  ];
+}
+
+export interface InspEmptyMenuActions {
+  leer: () => void;
+  agregar: () => void;
+  agregarCarpeta: () => void;
+  renombrar: () => void;
+  nuevo: () => void;
+  muestras: () => void;
+  abrirSalida: () => void;
+}
+
+/** Clic derecho en un espacio vacío de Inspecciones. */
+export function buildInspEmptyMenu(o: { ocupado: boolean; puedeRenombrar: boolean; hayFotos: boolean; canOpen: boolean }, a: InspEmptyMenuActions): MenuEntry[] {
+  return [
+    { id: 'insp-leer', label: '&Leer fotos nuevas', icon: ICON.sync, key: 'Ctrl+L', off: o.ocupado, run: a.leer },
+    { id: 'insp-add-fotos', label: '&Agregar fotos…', icon: ICON.add, key: 'Ctrl+O', off: o.ocupado, run: a.agregar },
+    { id: 'insp-add-carpeta', label: 'Cargar &carpeta de fotos…', icon: ICON.folderOpen, key: 'Ctrl+Mayús+O', off: o.ocupado, run: a.agregarCarpeta },
+    '-',
+    { id: 'insp-renombrar', label: '&Renombrar y copiar…', icon: ICON.rename, key: 'Ctrl+Intro', off: !o.puedeRenombrar, run: a.renombrar },
+    { id: 'insp-nuevo', label: '&Nuevo vehículo', icon: ICON.car, key: 'Ctrl+N', off: o.ocupado || !o.hayFotos, run: a.nuevo },
+    '-',
+    { id: 'insp-muestras', label: 'Ver las &muestras', icon: ICON.apps, run: a.muestras },
+    { id: 'insp-open-salida', label: 'Abrir la carpeta de &salida', icon: ICON.folderIn, off: !o.canOpen, run: a.abrirSalida },
   ];
 }

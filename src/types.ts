@@ -54,6 +54,9 @@ export interface ExtractedPolicyData {
   // on disk (desktop app only) — lets the UI swap the "Descargar" action for
   // "Mostrar en carpeta" once there's nothing left to download manually.
   savedToDisk?: boolean;
+  // Nombre del archivo del que se tomó el N° de póliza cuando el OCR no pudo leerlo en este documento
+  // (emparejamiento de ATM, utils/pairing.ts). Si está, la tabla muestra la etiqueta azul «Póliza de otro doc.».
+  numeroPolizaDe?: string;
 }
 
 export interface FolderConfig {

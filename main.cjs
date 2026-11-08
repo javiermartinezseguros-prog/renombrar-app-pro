@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -122,6 +122,8 @@ function createWindow() {
     minHeight: 640,
     title: 'RenombrarAPP Desktop Pro',
     backgroundColor: '#0F1115',
+    // The menu bar is drawn by the app itself (Archivo · Ver · Configuración · Ayuda); the native
+    // Electron menu is removed below so Alt does not bring up an English File/Edit/View bar.
     autoHideMenuBar: true,
     show: true,
     // Sets the running window's/taskbar icon (separate from the installer's
@@ -239,15 +241,19 @@ ipcMain.handle('select-folder', async () => {
 // file — a resolved-path check underneath is the actual guarantee, in case
 // a future Node/path-parsing edge case ever let something slip past
 // `basename` alone.
-function safeDestinationPath(folderPath, fileName) {
+const PDF_EXT = /\.pdf$/i;
+// Fotos de Inspecciones (solo imágenes; nunca otra cosa).
+const PHOTO_EXT = /\.(jpe?g|png|webp)$/i;
+
+function safeDestinationPath(folderPath, fileName, extPattern = PDF_EXT) {
   const resolvedFolder = path.resolve(folderPath);
   const safeName = path.basename(String(fileName || '').trim());
   if (!safeName) {
     throw new Error('Falta el nombre de archivo.');
   }
-  // This app only ever writes (and removes) policy PDFs.
-  if (!/\.pdf$/i.test(safeName)) {
-    throw new Error('El nombre de archivo debe terminar en .pdf.');
+  // Policy PDFs by default; Inspecciones passes PHOTO_EXT.
+  if (!extPattern.test(safeName)) {
+    throw new Error(extPattern === PHOTO_EXT ? 'El nombre de archivo debe terminar en .jpg, .png o .webp.' : 'El nombre de archivo debe terminar en .pdf.');
   }
   const resolvedPath = path.resolve(resolvedFolder, safeName);
   if (resolvedPath !== resolvedFolder && !resolvedPath.startsWith(resolvedFolder + path.sep)) {
@@ -267,8 +273,8 @@ function safeDestinationPath(folderPath, fileName) {
 // be written, this is harmless (re-processing the same document/batch) and
 // overwrites in place as before; otherwise it finds the next available
 // "<name> (2).pdf", "<name> (3).pdf"... so neither document is ever lost.
-function findAvailableDestinationPath(folderPath, fileName, newBuffer) {
-  const primary = safeDestinationPath(folderPath, fileName);
+function findAvailableDestinationPath(folderPath, fileName, newBuffer, extPattern = PDF_EXT) {
+  const primary = safeDestinationPath(folderPath, fileName, extPattern);
   if (!fs.existsSync(primary)) return primary;
   try {
     if (fs.readFileSync(primary).equals(newBuffer)) return primary;
@@ -276,14 +282,15 @@ function findAvailableDestinationPath(folderPath, fileName, newBuffer) {
     // Existing file couldn't even be read back — safer to suffix below
     // than to risk clobbering something unreadable/locked.
   }
-  const base = fileName.replace(/\.pdf$/i, '');
+  const ext = path.extname(fileName);
+  const base = fileName.slice(0, fileName.length - ext.length);
   for (let n = 2; n < 1000; n++) {
-    const candidate = safeDestinationPath(folderPath, `${base} (${n}).pdf`);
+    const candidate = safeDestinationPath(folderPath, `${base} (${n})${ext}`, extPattern);
     if (!fs.existsSync(candidate)) return candidate;
   }
   // Practically unreachable (999 real collisions on one name), but never
   // return a path we know is taken.
-  return safeDestinationPath(folderPath, `${base} (${Date.now()}).pdf`);
+  return safeDestinationPath(folderPath, `${base} (${Date.now()})${ext}`, extPattern);
 }
 
 // Writes a policy PDF (received as a data: URL) directly into the
@@ -335,6 +342,82 @@ ipcMain.handle('show-in-folder', (event, filePath) => {
     return { success: true };
   }
   return { success: false, error: 'El archivo ya no existe en esa ubicación.' };
+});
+
+// ---- Inspecciones (fotos de vehículos) ----
+// Las fotos se leen y se copian en esta PC; nada sale a internet. Solo imágenes (PHOTO_EXT).
+const MAX_PHOTO_BYTES = 60 * 1024 * 1024;
+
+// Imágenes que hay directamente en la carpeta (sin entrar en subcarpetas: así no se vuelven a leer
+// las fotos ya renombradas cuando la carpeta de salida está dentro del Origen).
+ipcMain.handle('list-photo-files', async (event, folderPath) => {
+  try {
+    const dir = String(folderPath || '').trim();
+    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      throw new Error('La carpeta no existe: ' + dir);
+    }
+    const files = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !PHOTO_EXT.test(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      const st = fs.statSync(full);
+      files.push({ path: full, name: entry.name, size: st.size, mtimeMs: st.mtimeMs });
+    }
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    return { success: true, files };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Modelos de reconocimiento (carpeta «modelos»: en la app instalada va en resources, fuera del asar; en desarrollo, junto al proyecto).
+// Solo se entregan los archivos que la app usa, por nombre exacto: el renderer no puede pedir cualquier ruta.
+const MODEL_FILES = new Set(['yolos-tiny_cuantizado.onnx', 'dinov2-small_cuantizado.onnx', 'ort-wasm-simd-threaded.wasm', 'ejemplos.json']);
+ipcMain.handle('read-model-file', async (event, name) => {
+  try {
+    if (!MODEL_FILES.has(String(name))) throw new Error('Archivo de modelo desconocido.');
+    const dir = app.isPackaged ? path.join(process.resourcesPath, 'modelos') : path.join(__dirname, 'modelos');
+    const buffer = fs.readFileSync(path.join(dir, String(name)));
+    return { success: true, bytes: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength) };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+const PHOTO_MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+
+ipcMain.handle('read-photo-file', async (event, filePath) => {
+  try {
+    const full = path.resolve(String(filePath || ''));
+    if (!PHOTO_EXT.test(full)) throw new Error('Solo se pueden leer imágenes (.jpg, .png o .webp).');
+    const st = fs.statSync(full);
+    if (!st.isFile()) throw new Error('No es un archivo.');
+    if (st.size > MAX_PHOTO_BYTES) throw new Error('La foto es demasiado grande (más de 60 MB).');
+    const buffer = fs.readFileSync(full);
+    const mime = PHOTO_MIME[path.extname(full).toLowerCase()] || 'application/octet-stream';
+    return { success: true, dataUrl: `data:${mime};base64,${buffer.toString('base64')}` };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Copia una foto con su nombre nuevo, directo en la carpeta de salida (sin subcarpetas). Nunca pisa un
+// archivo distinto: si el nombre ya existe con otro contenido, guarda «(2)», «(3)»… El original no se toca.
+ipcMain.handle('save-photo-to-folder', async (event, folderPath, fileName, dataUrl) => {
+  try {
+    if (!folderPath || !String(folderPath).trim()) throw new Error('No hay una carpeta de salida configurada.');
+    if (!fileName) throw new Error('Falta el nombre de archivo final.');
+    fs.mkdirSync(folderPath, { recursive: true });
+    const match = /^data:image\/[a-z+.-]+;base64,(.*)$/is.exec(String(dataUrl || ''));
+    if (!match) throw new Error('La foto no tiene contenido de imagen válido para guardar.');
+    const buffer = Buffer.from(match[1], 'base64');
+    if (buffer.length > MAX_PHOTO_BYTES) throw new Error('La foto es demasiado grande (más de 60 MB).');
+    const fullPath = findAvailableDestinationPath(folderPath, fileName, buffer, PHOTO_EXT);
+    fs.writeFileSync(fullPath, buffer);
+    return { success: true, path: fullPath };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
 });
 
 // Opens a folder in the OS file explorer (right-click menu on the Origen /
@@ -401,7 +484,16 @@ function stopActiveWatch() {
   activeWatchDestination = null;
 }
 
-ipcMain.handle('start-folder-watch', (event, folderPath, destinationPath) => {
+// How long the watch waits for a file to stop growing before reading it: a parameter the user sets
+// in Configuración (1 to 10 seconds, 1.5 by default). Anything else falls back to the default.
+const DEFAULT_FILE_WAIT_MS = 1500;
+function fileWaitMs(seconds) {
+  const n = Number(seconds);
+  if (!Number.isFinite(n)) return DEFAULT_FILE_WAIT_MS;
+  return Math.min(10000, Math.max(1000, Math.round(n * 1000)));
+}
+
+ipcMain.handle('start-folder-watch', (event, folderPath, destinationPath, waitSeconds) => {
   try {
     if (!folderPath || !fs.existsSync(folderPath)) {
       throw new Error(`La carpeta de origen no existe: ${folderPath}`);
@@ -427,7 +519,7 @@ ipcMain.handle('start-folder-watch', (event, folderPath, destinationPath) => {
       // top level). Watching the whole subtree means it no longer matters
       // how the user (or however the PDFs get saved there) organizes things
       // inside the origin folder.
-      awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 },
+      awaitWriteFinish: { stabilityThreshold: fileWaitMs(waitSeconds), pollInterval: 250 },
     });
 
     // Confirmed real gap: a read failure here used to only go to
@@ -646,6 +738,7 @@ autoUpdater.on('update-downloaded', (info) => {
 });
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   createWindow();
   if (app.isPackaged) {
     autoUpdater.checkForUpdatesAndNotify().catch((err) => {

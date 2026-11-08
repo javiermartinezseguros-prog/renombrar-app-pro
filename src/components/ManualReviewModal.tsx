@@ -258,7 +258,7 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
                 value={asegurado}
                 onChange={(e) => setAsegurado(e.target.value)}
                 placeholder="Ej: PEREZ JUAN CARLOS"
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 uppercase"
+                className="w-full px-3 py-2 text-xs rounded-xl field-soft uppercase"
                 required
               />
             </div>
@@ -275,7 +275,7 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
                 value={compania}
                 onChange={(e) => setCompania(e.target.value)}
                 placeholder="Ej: Federación Patronal, San Cristóbal..."
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-xs rounded-xl field-soft"
                 required
               />
               <datalist id="insurance-companies-list">
@@ -308,7 +308,7 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
                 value={numeroPoliza}
                 onChange={(e) => setNumeroPoliza(e.target.value)}
                 placeholder="Ej: 849201"
-                className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-xs font-mono rounded-xl field-soft"
                 required
               />
               <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
@@ -337,7 +337,7 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
                 value={numeroEndoso}
                 onChange={(e) => setNumeroEndoso(e.target.value)}
                 placeholder="00"
-                className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-xs font-mono rounded-xl field-soft"
               />
               <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                 2 dígitos: {formatEndorsementNumber(numeroEndoso)}
@@ -356,7 +356,7 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
                 value={rubro}
                 onChange={(e) => setRubro(e.target.value)}
                 placeholder="Automotor, Vida..."
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-xs rounded-xl field-soft"
               />
               <datalist id="insurance-branches-list">
                 {COMMON_BRANCHES.map((b) => (
@@ -429,7 +429,7 @@ const ManualReviewModalContent: React.FC<ManualReviewModalContentProps> = ({
               value={observaciones}
               onChange={(e) => setObservaciones(e.target.value)}
               placeholder="Ej: Corregido dígito de póliza ilegible"
-              className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+              className="w-full px-3 py-1.5 text-xs rounded-xl field-soft"
             />
           </div>
 

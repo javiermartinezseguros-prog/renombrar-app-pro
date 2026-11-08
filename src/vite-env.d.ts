@@ -15,3 +15,7 @@ declare module '*?bytes' {
   const base64: string;
   export default base64;
 }
+
+// Los define vite.config.ts: versión de package.json y novedades de esa versión (release-notes.json).
+declare const __APP_VERSION__: string;
+declare const __RELEASE_NOTES__: string[];

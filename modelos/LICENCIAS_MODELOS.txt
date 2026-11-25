@@ -15,7 +15,14 @@ Todo se ejecuta en esta PC. Ninguna foto se envía a internet.
    Origen: https://huggingface.co/Xenova/dinov2-small
    Sirve para comparar cada foto con las muestras y decir qué toma es.
 
-3) ort-wasm-simd-threaded.wasm  (motor de ejecución, 14,8 MB)
+3) lector-patentes_cct-xs-v2.onnx  (lector de patentes, 3,3 MB)
+   Modelo: cct-xs-v2-global del proyecto fast-plate-ocr (ankandrew). El código del proyecto es de licencia MIT
+   (Copyright (c) 2024 ankandrew); el proyecto no indica una licencia aparte para los modelos, que publica en el mismo
+   repositorio. Archivo original, sin cambios (se llamaba cct_xs_v2_global.onnx).
+   Origen: https://github.com/ankandrew/fast-plate-ocr/releases/tag/arg-plates
+   Sirve para leer las letras y números de la patente ya recortada de la foto.
+
+4) ort-wasm-simd-threaded.wasm  (motor de ejecución, 14,8 MB)
    ONNX Runtime Web (onnxruntime-web), licencia MIT, Microsoft.
    Copiado de node_modules/onnxruntime-web/dist (la misma versión que package.json).
 
@@ -25,3 +32,4 @@ Texto de la licencia MIT: https://opensource.org/license/mit
 Sumas de control (SHA-256) de los modelos incluidos:
   yolos-tiny_cuantizado.onnx   82b5c1de8aaaffd763c67d67b09b742a1c53628acfee3077af3fa59233e86b6b
   dinov2-small_cuantizado.onnx 3afdc8bc63b50558d6e5770f5b799bb82455c2311183a2de43803f343a29d917
+  lector-patentes_cct-xs-v2.onnx 8031afb5fdc6b4d80462c9d542f1284ebd2cfddf5dbacd62609848d7e2855f44

@@ -6,6 +6,7 @@ Lo que usa la sección **Inspecciones** para reconocer fotos sin internet. Ver `
 |---|---|---|
 | `yolos-tiny_cuantizado.onnx` | detectar el vehículo (¿la foto lo corta?) | `https://huggingface.co/Xenova/yolos-tiny/resolve/main/onnx/model_quantized.onnx` |
 | `dinov2-small_cuantizado.onnx` | reconocer la toma comparando con las muestras | `https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_quantized.onnx` |
+| `lector-patentes_cct-xs-v2.onnx` | leer las letras y números de la patente (3,3 MB) | `https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_xs_v2_global.onnx` (entrada 64×128 color, salida 10 posiciones × 37 caracteres) |
 | `ort-wasm-simd-threaded.wasm` | motor de ejecución | copiado de `node_modules/onnxruntime-web/dist/` |
 | `ejemplos.json` | 333 ejemplos reales de tomas de auto (solo números del reconocedor, sin fotos, patentes ni nombres) | armado el 09/11/2026 con fotos ya nombradas de la oficina: hasta 40 por toma, de vehículos distintos, guardados como enteros de 8 bits |
 

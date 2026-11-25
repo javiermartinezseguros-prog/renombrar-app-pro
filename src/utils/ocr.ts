@@ -97,16 +97,32 @@ function terminateIfIdle(): void {
   pending.then((worker) => worker.terminate()).catch(() => {});
 }
 
-/** Recognizes the text on a rendered page. Throws if OCR can't run at all. */
-export async function recognizeText(image: HTMLCanvasElement): Promise<string> {
-  clearTimeout(idleTimer);
-  activeJobs++;
-  try {
-    const worker = await getWorker();
-    const { data } = await worker.recognize(image);
-    return data.text || '';
-  } finally {
-    activeJobs--;
-    if (activeJobs === 0) idleTimer = setTimeout(terminateIfIdle, IDLE_TERMINATE_MS);
-  }
+/** Modo de lectura de Tesseract: '3' página con columnas (por defecto), '11' texto suelto en cualquier lugar (carteles, tarjetas, fotos de documentos). */
+export type ModoLectura = '3' | '11';
+
+// El trabajador es uno solo: cada lectura fija su modo y lo devuelve al de página, así que se hacen de a una.
+let cola: Promise<unknown> = Promise.resolve();
+
+/** Recognizes the text on a rendered page (o, con modo '11', texto suelto). Throws if OCR can't run at all. */
+export function recognizeText(image: HTMLCanvasElement, modo: ModoLectura = '3'): Promise<string> {
+  const leer = async (): Promise<string> => {
+    clearTimeout(idleTimer);
+    activeJobs++;
+    try {
+      const worker = await getWorker();
+      if (modo !== '3') await worker.setParameters({ tessedit_pageseg_mode: modo as any });
+      try {
+        const { data } = await worker.recognize(image);
+        return data.text || '';
+      } finally {
+        if (modo !== '3') await worker.setParameters({ tessedit_pageseg_mode: '3' as any });
+      }
+    } finally {
+      activeJobs--;
+      if (activeJobs === 0) idleTimer = setTimeout(terminateIfIdle, IDLE_TERMINATE_MS);
+    }
+  };
+  const resultado = cola.then(leer, leer);
+  cola = resultado.catch(() => {});
+  return resultado;
 }

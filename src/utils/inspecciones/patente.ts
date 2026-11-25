@@ -40,19 +40,3 @@ export function corregirConfusiones(raw: string): string | null {
   }
   return mejor ? mejor.texto : null;
 }
-
-/** Busca una patente entre los textos que el OCR leyó de una foto (probando también pares de textos seguidos). */
-export function buscarPatente(textos: string[]): { patente: string; exacta: boolean } | null {
-  const candidatos = new Set<string>();
-  const limpios = textos.map(normalizarPatente).filter(Boolean);
-  limpios.forEach((t, i) => {
-    candidatos.add(t);
-    if (limpios[i + 1]) candidatos.add(t + limpios[i + 1]);
-  });
-  let corregida: string | null = null;
-  for (const c of candidatos) {
-    if (esPatenteValida(c)) return { patente: c, exacta: true };
-    if (!corregida) corregida = corregirConfusiones(c);
-  }
-  return corregida ? { patente: corregida, exacta: false } : null;
-}

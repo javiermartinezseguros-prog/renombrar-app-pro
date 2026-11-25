@@ -7,9 +7,10 @@ import { InspConfig, outputFolderFor } from '../utils/inspecciones/config';
 import { Caja, costadoEnDiagonal, ladosCortados, Lado, LADO_TEXTO } from '../utils/inspecciones/encuadre';
 import { formatoFecha, FechaFoto } from '../utils/inspecciones/fecha';
 import { esPatenteValida, normalizarPatente } from '../utils/inspecciones/patente';
+import { LadoChapa, ladosConChapa, LecturaChapa, patenteDelVehiculo, PatenteDelVehiculo } from '../utils/inspecciones/placa';
 import { muestraUrl } from '../utils/inspecciones/muestras';
 import { errorDeModelos, obtenerAnalizador } from '../utils/inspecciones/modelos';
-import { Analizador, FuenteFoto, leerFoto, leerPatenteDeFoto } from '../utils/inspecciones/analisis';
+import { Analizador, FuenteFoto, leerDominioDeCedula, leerFoto, leerPatenteDeFoto } from '../utils/inspecciones/analisis';
 import { NITIDEZ_MINIMA } from '../utils/inspecciones/nitidez';
 import { agregarProcesadas, cargarProcesadas, clavePhoto } from '../utils/inspecciones/procesadas';
 import { faltantes, FotoAsignada, planDeCopias, TipoVehiculo, TomaDef, TomaId, tomaPorId, tomasDe } from '../utils/inspecciones/tomas';
@@ -63,6 +64,8 @@ interface Foto {
   /** El modelo no está seguro de la toma: se pide confirmarla (con «Marcar como revisada» o cambiándola). */
   tomaDudosa: boolean;
   tipoModelo?: TipoVehiculo;
+  /** El modelo vio un documento (licencia, cédula, DNI, tarjeta) y no una toma del vehículo. */
+  documento?: boolean;
   /** Lo que eligió Javier a mano (manda sobre el modelo). */
   tomasManual?: TomaId[];
   clase?: string;
@@ -72,6 +75,8 @@ interface Foto {
   relacion?: number;
   revisada: boolean;
   patente?: { patente: string; exacta: boolean };
+  /** Dominio leído en esta foto si es una cédula (verde o azul). */
+  dominio?: { patente: string; exacta: boolean };
   /** Archivos con exactamente la misma foto que se descartaron (se marcan como ya copiados junto con esta). */
   duplicadas?: string[];
 }
@@ -82,7 +87,12 @@ interface Celda {
   foto?: Foto;
 }
 
-type Progreso = { fase: 'modelos' | 'fotos' | 'patente'; hecho: number; total: number; actual: string; inicio: number; parando: boolean };
+/** Cuántas fotos como mucho se pasan por el lector de patentes en cada tanda (hacen falta las de adelante y de atrás). */
+const MAX_INTENTOS_PATENTE = 8;
+/** Cuántas fotos que parecen documentos se pasan como mucho por el lector de cédulas en cada tanda (cada una tarda unos segundos). */
+const MAX_INTENTOS_CEDULA = 4;
+
+type Progreso = { fase: 'modelos' | 'fotos' | 'patente' | 'cedula'; hecho: number; total: number; actual: string; inicio: number; parando: boolean };
 
 let contador = 0;
 const nuevoId = () => `f${Date.now()}-${contador++}`;
@@ -112,6 +122,8 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
   const [patenteExacta, setPatenteExacta] = useState<boolean | null>(null);
   /** Lectura dudosa de la patente: se ofrece, pero no se completa sola. */
   const [sugerencia, setSugerencia] = useState<string | null>(null);
+  /** Qué dijeron la patente de adelante y la de atrás (null si todavía no se leyó ninguna). */
+  const [cruce, setCruce] = useState<PatenteDelVehiculo | null>(null);
   /** null = todavía no se intentó; false = no se pudieron cargar los modelos (queda el motivo en errorDeModelos). */
   const [modeloOk, setModeloOk] = useState<boolean | null>(null);
   const [progreso, setProgreso] = useState<Progreso | null>(null);
@@ -149,6 +161,11 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
     return (f.tomasManual ?? f.tomasAuto).filter((t) => validas.has(t));
   };
 
+  /** De qué lado del vehículo es la foto, si es la de adelante o la de atrás (null si es otra toma o no se sabe). */
+  const ladoChapaDe = (f: Foto): LadoChapa | null => {
+    const t = efectivas(f);
+    return t.includes('FRENTE') ? 'FRENTE' : t.includes('TRASERA') ? 'TRASERA' : null;
+  };
   const ladosDe = (f: Foto): Lado[] => {
     if (!f.caja || f.revisada) return [];
     const importa = efectivas(f).some((t) => tomaPorId(t)?.vistaCompleta);
@@ -178,6 +195,7 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
   const diagonales = fotos.filter(diagonalDe);
   const borrosas = fotos.filter((f) => f.nitidez < NITIDEZ_MINIMA && !f.revisada);
   const sinToma = fotos.filter((f) => efectivas(f).length === 0);
+  const documentos = sinToma.filter((f) => f.documento);
   const dudosas = fotos.filter((f) => f.tomaDudosa && !f.revisada && !f.tomasManual && efectivas(f).length > 0);
   const fechas = [...new Set(fotos.map((f) => f.fecha?.iso).filter(Boolean) as string[])].sort();
   const patentesLeidas = [...new Set(fotos.filter((f) => f.patente?.exacta).map((f) => f.patente!.patente))];
@@ -193,10 +211,15 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
     ...cortadas.map((f) => `${efectivas(f).map((t) => tomaPorId(t)?.nombre).join(' / ')} corta una parte del vehículo`),
     ...diagonales.map((f) => `${efectivas(f).map((t) => tomaPorId(t)?.nombre).join(' / ')} salió en diagonal: sacala de perfil`),
     ...faltan.map((t) => `falta ${tomaPorId(t)?.nombre}`),
-    ...(sinToma.length ? [`${sinToma.length} ${sinToma.length === 1 ? 'foto sin toma' : 'fotos sin toma'}`] : []),
+    ...(documentos.length ? [`${documentos.length} ${documentos.length === 1 ? 'foto parece un documento' : 'fotos parecen documentos'} (licencia, cédula, DNI…): no ${documentos.length === 1 ? 'es una toma' : 'son tomas'} del vehículo; si hace falta, asignale la toma a mano`] : []),
+    ...(sinToma.length > documentos.length ? [`${sinToma.length - documentos.length} ${sinToma.length - documentos.length === 1 ? 'foto sin toma' : 'fotos sin toma'}`] : []),
     ...(dudosas.length ? [`${dudosas.length} ${dudosas.length === 1 ? 'toma poco segura' : 'tomas poco seguras'}: confirmalas`] : []),
     ...borrosas.map((f) => `${f.nombre} está movida o sin foco`),
-    ...(patentesLeidas.length > 1 ? [`se leyeron patentes distintas (${patentesLeidas.join(', ')}): ¿hay fotos de dos vehículos?`] : []),
+    ...(cruce?.cedula?.estado === 'distinta'
+      ? [`el dominio de la cédula (${cruce.cedula.patente}) no coincide con la patente de las fotos (${cruce.cedula.fotos.join(', ')}): puede haber una cédula o fotos de otro vehículo`]
+      : cruce?.cruce === 'distinta'
+      ? [`la patente de ${cruce.lado === 'FRENTE' ? 'adelante' : 'atrás'} (${cruce.patente}) no coincide con la de ${cruce.otra!.lado === 'FRENTE' ? 'adelante' : 'atrás'} (${cruce.otra!.patente}): revisalas, o puede haber fotos de dos vehículos`]
+      : patentesLeidas.length > 1 ? [`se leyeron patentes distintas (${patentesLeidas.join(', ')}): ¿hay fotos de dos vehículos?`] : []),
     ...(fechas.length > 1 ? [`las fotos son de días distintos (${fechas.map(formatoFecha).join(', ')})`] : []),
     ...(!esPatenteValida(normalizarPatente(patente)) ? [normalizarPatente(patente) === '' ? 'falta la patente' : 'revisá la patente'] : []),
   ];
@@ -261,7 +284,7 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
     if (!analizador) onNotify('error', 'No se pudo preparar el reconocimiento', `${errorDeModelos() ?? 'Falló la carga de los modelos.'} Podés elegir la toma de cada foto a mano.`);
     setProgreso((p) => (p ? { ...p, fase: 'fotos', inicio: Date.now() } : p));
     let intentosOcr = 0;
-    let exactas = fotosRef.current.filter((f) => f.patente?.exacta).length;
+    let intentosCedula = 0;
     let motos = 0;
     let leidas = 0;
     const enTanda: Foto[] = [];
@@ -283,38 +306,66 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
         }
         const foto: Foto = {
           id: nuevoId(), nombre: fuente.nombre, size: fuente.size, ruta: fuente.ruta, dataUrl: r.dataUrl, miniatura: r.miniatura,
-          fecha: r.fecha, nitidez: r.nitidez, tomasAuto: r.modelo?.tomas ?? [], tomaDudosa: r.modelo?.dudosa ?? false, tipoModelo: r.modelo?.tipo ?? undefined, clase: r.modelo?.vehiculo?.clase, revisada: false,
+          fecha: r.fecha, nitidez: r.nitidez, tomasAuto: r.modelo?.tomas ?? [], tomaDudosa: r.modelo?.dudosa ?? false, documento: r.modelo?.documento ?? false, tipoModelo: r.modelo?.tipo ?? undefined, clase: r.modelo?.vehiculo?.clase, revisada: false,
           relacion: r.modelo?.vehiculo ? (r.modelo.vehiculo.caja.x1 - r.modelo.vehiculo.caja.x0) / Math.max(1, r.modelo.vehiculo.caja.y1 - r.modelo.vehiculo.caja.y0) : undefined,
           caja: r.modelo?.vehiculo
             ? { x0: r.modelo.vehiculo.caja.x0 / r.lienzo.width, y0: r.modelo.vehiculo.caja.y0 / r.lienzo.height, x1: r.modelo.vehiculo.caja.x1 / r.lienzo.width, y1: r.modelo.vehiculo.caja.y1 / r.lienzo.height }
             : undefined,
         };
         if (foto.tipoModelo === 'moto') motos++;
-        // La patente se busca en las primeras fotos (hasta dos lecturas seguras o seis intentos), como mucho.
-        const puedeTenerPatente = !analizador || foto.tomasAuto.length === 0 || foto.tomasAuto.some((t) => t === 'FRENTE' || t === 'TRASERA');
-        if (puedeTenerPatente && exactas < 2 && intentosOcr < 6 && !stopRef.current) {
+        // La patente se lee en las fotos de adelante y de atrás (en las motos, solo en la de atrás, que es donde la llevan)
+        // hasta tener las dos, con un tope de intentos. Cuando están las dos, se comparan.
+        const esMoto = foto.tipoModelo === 'moto' || tipo === 'moto';
+        const lado = ladoChapaDe(foto);
+        const sinTomaConocida = foto.tomasAuto.length === 0;
+        const leidasAntes = [...fotosRef.current, ...enTanda].flatMap((f) => (f.patente ? [{ lado: ladoChapaDe(f), exacta: f.patente.exacta }] : []));
+        const faltaEseLado = !leidasAntes.some((l) => l.lado === lado && l.exacta);
+        const tocaLeer = sinTomaConocida ? !foto.documento : lado !== null && ladosConChapa(esMoto).includes(lado) && faltaEseLado;
+        if (analizador && tocaLeer && intentosOcr < MAX_INTENTOS_PATENTE && !stopRef.current) {
           intentosOcr++;
           setProgreso((p) => (p ? { ...p, fase: 'patente' } : p));
           try {
-            foto.patente = (await leerPatenteDeFoto(r.lienzo)) ?? undefined;
+            foto.patente = (await leerPatenteDeFoto(r.dataUrl, r.modelo?.vehiculo?.caja ?? null, r.lienzo.width, analizador.leerChapa)) ?? undefined;
           } catch (e) {
             console.warn('OCR de patente no disponible:', e);
             intentosOcr = 99;
           }
-          if (foto.patente?.exacta) exactas++;
+          setProgreso((p) => (p ? { ...p, fase: 'fotos' } : p));
+        }
+        // La cédula trae el dominio de forma inequívoca: si la foto parece un documento, se busca ese campo (hasta encontrarlo
+        // o agotar los intentos) para compararlo con las fotos del vehículo.
+        const yaHayDominio = [...fotosRef.current, ...enTanda].some((f) => f.dominio?.exacta);
+        if (foto.documento && !yaHayDominio && intentosCedula < MAX_INTENTOS_CEDULA && !stopRef.current) {
+          intentosCedula++;
+          setProgreso((p) => (p ? { ...p, fase: 'cedula' } : p));
+          try {
+            foto.dominio = (await leerDominioDeCedula(r.dataUrl)) ?? undefined;
+          } catch (e) {
+            console.warn('OCR de la cédula no disponible:', e);
+            intentosCedula = 99;
+          }
           setProgreso((p) => (p ? { ...p, fase: 'fotos' } : p));
         }
         leidas++;
         enTanda.push(foto);
         setFotos((prev) => [...prev, foto]);
-        if (foto.patente && !patenteManual.current && !patenteExactaRef.current) {
-          if (foto.patente.exacta) {
-            setPatente(foto.patente.patente);
-            patenteExactaRef.current = true;
-            setPatenteExacta(true);
-            setSugerencia(null);
-          } else {
-            setSugerencia((actual) => actual ?? foto.patente!.patente);
+        if (foto.patente || foto.dominio) {
+          const todas = [...fotosRef.current, ...enTanda];
+          const lecturas: LecturaChapa[] = todas.flatMap((f) => [
+            ...(f.patente ? [{ lado: ladoChapaDe(f), patente: f.patente.patente, exacta: f.patente.exacta }] : []),
+            ...(f.dominio ? [{ lado: 'CEDULA' as const, patente: f.dominio.patente, exacta: f.dominio.exacta }] : []),
+          ]);
+          const v = patenteDelVehiculo(lecturas);
+          setCruce(v);
+          if (v && !patenteManual.current) {
+            if (v.exacta) {
+              setPatente(v.patente);
+              patenteExactaRef.current = true;
+              setPatenteExacta(true);
+              setSugerencia(null);
+            } else if (!patenteExactaRef.current) {
+              setSugerencia(v.patente);
+            }
           }
         }
       } catch (e: any) {
@@ -363,6 +414,7 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
     setPatente('');
     setPatenteExacta(null);
     setSugerencia(null);
+    setCruce(null);
     setTipo('auto');
     tipoManual.current = false;
     patenteManual.current = false;
@@ -628,7 +680,7 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-sm">
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>{progreso.parando ? 'Deteniendo… termina la foto que está leyendo' : progreso.fase === 'modelos' ? 'Preparando el reconocimiento… (la primera vez tarda unos segundos)' : `${progreso.fase === 'patente' ? 'Leyendo la patente' : 'Leyendo fotos'}: ${progreso.hecho} de ${progreso.total} (${pct} %)`}</span>
+                <span>{progreso.parando ? 'Deteniendo… termina la foto que está leyendo' : progreso.fase === 'modelos' ? 'Preparando el reconocimiento… (la primera vez tarda unos segundos)' : `${progreso.fase === 'patente' ? 'Leyendo la patente' : progreso.fase === 'cedula' ? 'Leyendo la cédula' : 'Leyendo fotos'}: ${progreso.hecho} de ${progreso.total} (${pct} %)`}</span>
               </div>
               <button id="btn-insp-detener" data-help="insp-detener" type="button" disabled={progreso.parando}
                 onClick={() => { stopRef.current = true; setProgreso((p) => (p ? { ...p, parando: true } : p)); }}
@@ -712,7 +764,13 @@ export const InspeccionesView = forwardRef<InspeccionesHandle, Props>(({ activa,
                 <p className="basis-full text-[11px] text-slate-500 dark:text-slate-400 -mt-1">
                   {copiado
                     ? `Los ${copiado.archivos} archivos quedaron copiados en ${copiado.carpeta}. Para otro vehículo, apretá «Nuevo vehículo».`
-                    : patenteExacta === true ? 'La app leyó la patente de una foto. Revisala y corregila si hace falta antes de renombrar.'
+                    : cruce?.cedula?.estado === 'coincide' && patenteExacta === true ? 'La patente coincide con el dominio de la cédula. Revisala igual antes de renombrar.'
+                    : cruce?.cedula?.estado === 'corrige' ? `Se usó el dominio de la cédula (${cruce.cedula.patente}); en las fotos se había leído ${cruce.cedula.fotos.filter((p) => p !== cruce.cedula!.patente).join(', ') || 'otra cosa'}. Revisala antes de renombrar.`
+                    : cruce?.cedula?.estado === 'distinta' ? `El dominio de la cédula (${cruce.cedula.patente}) no coincide con las fotos (${cruce.cedula.fotos.join(', ')}): ¿la cédula o las fotos son de otro vehículo? Mirá y escribí la correcta.`
+                    : cruce?.cedula?.estado === 'sola' && patenteExacta === true ? 'La patente salió del dominio de la cédula (las fotos del vehículo no se pudieron leer). Revisala antes de renombrar.'
+                    : cruce?.cruce === 'coincide' && patenteExacta === true ? 'La patente de adelante y la de atrás coinciden. Revisala igual antes de renombrar.'
+                    : cruce?.cruce === 'distinta' ? `La patente de adelante y la de atrás no coinciden (${cruce.patente} y ${cruce.otra!.patente}): mirá las dos fotos y escribí la correcta.`
+                    : patenteExacta === true ? (tipo === 'moto' ? 'La app leyó la patente de la foto de atrás (las motos la llevan solo atrás). Revisala antes de renombrar.' : cruce?.cruce === 'un_lado' ? `La app leyó la patente de la foto de ${cruce.lado === 'FRENTE' ? 'adelante' : 'atrás'}; no pudo compararla con la del otro lado. Revisala antes de renombrar.` : 'La app leyó la patente de una foto. Revisala y corregila si hace falta antes de renombrar.')
                     : normalizarPatente(patente) ? (patenteExacta === false ? 'La patente viene de una lectura dudosa: revisala con atención antes de renombrar.' : 'Patente escrita a mano.')
                     : sugerencia ? (
                       <>

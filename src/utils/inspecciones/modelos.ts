@@ -7,6 +7,7 @@
 import * as ort from 'onnxruntime-web/wasm';
 import { isElectron, readModelFile } from '../electronBridge';
 import type { Analizador, ResultadoModelo } from './analisis';
+import { ALTO_ENTRADA_CHAPA, ANCHO_ENTRADA_CHAPA, decodificarChapa, LecturaChapaModelo } from './lectorPatente';
 import { base64ABytes } from './nitidez';
 import { ClaveMuestra, decidirToma } from './decision';
 import { CLASES_DOS_RUEDAS, elegirVehiculo } from './encuadre';
@@ -17,7 +18,9 @@ import { agruparPorToma, caracteristicas, Caracteristicas, Imagen, interpretarDe
 
 const ARCHIVO_DETECTOR = 'yolos-tiny_cuantizado.onnx';
 const ARCHIVO_RECONOCEDOR = 'dinov2-small_cuantizado.onnx';
+const ARCHIVO_LECTOR_PATENTE = 'lector-patentes_cct-xs-v2.onnx';
 const ARCHIVO_MOTOR = 'ort-wasm-simd-threaded.wasm';
+const OPCIONES_ORT = { executionProviders: ['wasm'] as string[], graphOptimizationLevel: 'all' as const };
 const ARCHIVO_EJEMPLOS = 'ejemplos.json';
 
 /** Cambia si cambia el modelo o cómo se prepara la foto: las características guardadas dejan de servir. */
@@ -114,10 +117,9 @@ async function cargarMotor(): Promise<Motor> {
   ort.env.wasm.numThreads = 1; // un solo hilo: no hace falta aislamiento entre ventanas ni workers (la app corre desde file://)
   ort.env.wasm.proxy = false;
   ort.env.wasm.wasmBinary = await bytesDe(ARCHIVO_MOTOR);
-  const opciones = { executionProviders: ['wasm'] as string[], graphOptimizationLevel: 'all' as const };
   const [detector, reconocedor] = await Promise.all([
-    bytesDe(ARCHIVO_DETECTOR).then((b) => ort.InferenceSession.create(b, opciones)),
-    bytesDe(ARCHIVO_RECONOCEDOR).then((b) => ort.InferenceSession.create(b, opciones)),
+    bytesDe(ARCHIVO_DETECTOR).then((b) => ort.InferenceSession.create(b, OPCIONES_ORT)),
+    bytesDe(ARCHIVO_RECONOCEDOR).then((b) => ort.InferenceSession.create(b, OPCIONES_ORT)),
   ]);
   let prototipos = leerCache();
   if (!prototipos) {
@@ -145,7 +147,34 @@ export async function obtenerAnalizador(): Promise<Analizador | null> {
     console.warn('No se pudieron cargar los modelos de reconocimiento:', e);
     return null;
   }
+  // el lector de patentes se carga la primera vez que hace falta (3 MB): leer fotos sin patente no lo necesita
+  let lectorPatente: Promise<ort.InferenceSession> | null = null;
   return {
+    leerChapa: async (recorte): Promise<LecturaChapaModelo> => {
+      lectorPatente ??= bytesDe(ARCHIVO_LECTOR_PATENTE).then((b) => ort.InferenceSession.create(b, OPCIONES_ORT));
+      let sesion: ort.InferenceSession;
+      try {
+        sesion = await lectorPatente;
+      } catch (e) {
+        lectorPatente = null; // la próxima vez vuelve a intentar
+        throw e;
+      }
+      const lienzo = document.createElement('canvas');
+      lienzo.width = ANCHO_ENTRADA_CHAPA;
+      lienzo.height = ALTO_ENTRADA_CHAPA;
+      const ctx = lienzo.getContext('2d', { willReadFrequently: true })!;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(recorte, 0, 0, ANCHO_ENTRADA_CHAPA, ALTO_ENTRADA_CHAPA);
+      const rgba = ctx.getImageData(0, 0, ANCHO_ENTRADA_CHAPA, ALTO_ENTRADA_CHAPA).data;
+      const rgb = new Uint8Array(ANCHO_ENTRADA_CHAPA * ALTO_ENTRADA_CHAPA * 3);
+      for (let p = 0; p < ANCHO_ENTRADA_CHAPA * ALTO_ENTRADA_CHAPA; p++) {
+        rgb[p * 3] = rgba[p * 4];
+        rgb[p * 3 + 1] = rgba[p * 4 + 1];
+        rgb[p * 3 + 2] = rgba[p * 4 + 2];
+      }
+      const salida = await sesion.run({ input: new ort.Tensor('uint8', rgb, [1, ALTO_ENTRADA_CHAPA, ANCHO_ENTRADA_CHAPA, 3]) });
+      return decodificarChapa(salida.plate.data as Float32Array);
+    },
     analizar: async (lienzo): Promise<ResultadoModelo> => {
       const img = imagenDeLienzo(lienzo);
       const p = prepararDetector(img);
@@ -159,6 +188,7 @@ export async function obtenerAnalizador(): Promise<Analizador | null> {
         tomas: decision?.tomas ?? [],
         tipo,
         dudosa: decision?.dudosa ?? false,
+        documento: decision?.documento ?? false,
         vehiculo: vehiculo ? { clase: vehiculo.clase, caja: vehiculo.caja } : null,
       };
     },

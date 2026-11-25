@@ -5,7 +5,7 @@
  * No contienen imágenes, patentes ni nombres: de un vector no se puede reconstruir la foto.
  */
 import { base64ABytes } from './nitidez';
-import type { ClaveMuestra } from './decision';
+import { DOCUMENTO, type ClaveMuestra } from './decision';
 import { TOMAS, TomaId } from './tomas';
 import type { Prototipo } from './vision';
 
@@ -21,7 +21,7 @@ interface ArchivoEjemplos {
 export function decodificarEjemplos(json: string): Prototipo<ClaveMuestra>[] {
   const a = JSON.parse(json) as ArchivoEjemplos;
   if (!a || a.version !== 1 || !Array.isArray(a.ejemplos)) throw new Error('ejemplos.json no tiene el formato esperado.');
-  const conocidas = new Set<string>(TOMAS.filter((t) => t.tipos.includes('auto')).map((t) => t.id));
+  const conocidas = new Set<string>([...TOMAS.filter((t) => t.tipos.includes('auto')).map((t) => t.id), DOCUMENTO]);
   const out: Prototipo<ClaveMuestra>[] = [];
   for (const e of a.ejemplos) {
     if (!conocidas.has(e.toma) || typeof e.q !== 'string' || !(e.escala > 0)) continue;
@@ -29,7 +29,7 @@ export function decodificarEjemplos(json: string): Prototipo<ClaveMuestra>[] {
     if (bytes.length !== DIM_GLOBAL + DIM_GRILLA) continue;
     const v = new Float32Array(bytes.length);
     for (let i = 0; i < bytes.length; i++) v[i] = ((bytes[i] << 24) >> 24) * e.escala; // byte → entero con signo
-    out.push({ clave: { tipo: 'auto', toma: e.toma as TomaId }, caracteristicas: { global: v.slice(0, DIM_GLOBAL), grilla: v.slice(DIM_GLOBAL) } });
+    out.push({ clave: { tipo: 'auto', toma: e.toma as TomaId | typeof DOCUMENTO }, caracteristicas: { global: v.slice(0, DIM_GLOBAL), grilla: v.slice(DIM_GLOBAL) } });
   }
   return out;
 }

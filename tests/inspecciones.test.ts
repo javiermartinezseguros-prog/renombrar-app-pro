@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TOMAS, tomasDe, nombreDeArchivo, planDeCopias, faltantes } from '../src/utils/inspecciones/tomas';
-import { normalizarPatente, esPatenteValida, corregirConfusiones, buscarPatente } from '../src/utils/inspecciones/patente';
+import { normalizarPatente, esPatenteValida, corregirConfusiones } from '../src/utils/inspecciones/patente';
 import { fechaDeNombreWhatsApp, fechaExif, fechaDeLaFoto, formatoFecha } from '../src/utils/inspecciones/fecha';
 import { ladosCortados, elegirVehiculo } from '../src/utils/inspecciones/encuadre';
 import { DEFAULT_INSP_CONFIG, sanitizeInspConfig, loadInspConfig, saveInspConfig, INSP_PARAM_SPEC, outputFolderFor } from '../src/utils/inspecciones/config';
@@ -70,13 +70,6 @@ test('patente: corrige confusiones de lectura según la posición', () => {
   assert.equal(corregirConfusiones('QQQQQQQQ'), null);
   assert.equal(corregirConfusiones('KOLSARU'), null); // 3 cambios: es texto de un cartel, no una patente mal leída
   assert.equal(corregirConfusiones('KNEO5S'), 'KNE055'); // 2 cambios: todavía vale
-});
-
-test('patente: la busca entre varios textos leídos de una foto', () => {
-  assert.deepEqual(buscarPatente(['ARGENTINA', 'KNE 353', 'MERCOSUR']), { patente: 'KNE353', exacta: true });
-  assert.deepEqual(buscarPatente(['hola', 'KKM 219']), { patente: 'KKM219', exacta: true });
-  assert.equal(buscarPatente(['sin', 'nada']), null);
-  assert.deepEqual(buscarPatente(['AB l23 CD']), { patente: 'AB123CD', exacta: false });
 });
 
 // ───────── fecha ─────────

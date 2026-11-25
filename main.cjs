@@ -372,7 +372,7 @@ ipcMain.handle('list-photo-files', async (event, folderPath) => {
 
 // Modelos de reconocimiento (carpeta «modelos»: en la app instalada va en resources, fuera del asar; en desarrollo, junto al proyecto).
 // Solo se entregan los archivos que la app usa, por nombre exacto: el renderer no puede pedir cualquier ruta.
-const MODEL_FILES = new Set(['yolos-tiny_cuantizado.onnx', 'dinov2-small_cuantizado.onnx', 'ort-wasm-simd-threaded.wasm', 'ejemplos.json']);
+const MODEL_FILES = new Set(['yolos-tiny_cuantizado.onnx', 'dinov2-small_cuantizado.onnx', 'ort-wasm-simd-threaded.wasm', 'ejemplos.json', 'lector-patentes_cct-xs-v2.onnx']);
 ipcMain.handle('read-model-file', async (event, name) => {
   try {
     if (!MODEL_FILES.has(String(name))) throw new Error('Archivo de modelo desconocido.');

@@ -2,6 +2,19 @@
 
 Versionado MAJOR.MINOR.PATCH: MINOR cuando cambia lo que ve o recibe el usuario. El texto que ve el usuario al actualizar sale de `release-notes.json`; acá va el detalle técnico y lo que se verificó.
 
+## 1.3.0 (25/11/2026) — programada, sin compilar ni publicar
+
+Corrige dos problemas de la sección «Inspecciones» que encontró Javier con fotos reales.
+
+### Corregido / nuevo
+- **Documentos:** las licencias de conducir, cédulas, DNI y tarjetas caían en la toma OBLEA (69 de 69 fotos medidas, 68 en OBLEA). Nueva clase `DOCUMENTO` (`decision.ts`): 70 ejemplos en `modelosejemplos.json` (solo vectores, sin fotos ni nombres); si es lo más parecido, la foto queda sin toma y con el aviso «parece un documento». Con fotos nuevas: 54 de 54 bien; las obleas verdaderas siguen como oblea.
+- **Patentes:** la lectura con Tesseract sobre la foto entera acertaba 5 de 48. Ahora `placa.ts` ubica rectángulos que parecen una chapa (trazos verticales + dos tonos + entorno distinto, sirve para chapa blanca y negra) y `lectorPatente.ts` + `modelos.ts` leen cada recorte con **fast-plate-ocr `cct-xs-v2-global`** (ONNX, 3,3 MB, `modeloslector-patentes_cct-xs-v2.onnx`, se carga la primera vez que se usa). Solo se aceptan lecturas con forma de patente argentina; una lectura cortada no se «arregla». Medido con fotos nuevas (no usadas para ajustar): 26 de 55 leídas bien (24 «seguras»), 3 mal (1 «segura»), 26 sin lectura; 0,37 s por foto (antes casi 7 s). Se saca el camino viejo de Tesseract para patentes.
+- **Adelante contra atrás:** `patenteDelVehiculo` compara la patente de la foto de FRENTE con la de TRASERA: coinciden = confirmada; distintas = aviso con las dos; un solo lado = se dice cuál.
+- **Motos:** la patente se lee solo en TRASERA (`ladosConChapa`).
+- **Cédula verde:** `cedula.ts` busca el campo DOMINIO en el texto que el OCR lee de las fotos que parecen documentos (la palabra se reconoce aunque salga «poMNIO»; una patente suelta lejos de esa palabra no se toma); `leerDominioDeCedula` (`analisis.ts`) prueba la foto derecha y girada a los dos lados, como página y como texto suelto (`recognizeText(imagen, modo)` en `ocr.ts`, ahora con modo de lectura). `patenteDelVehiculo` suma la cédula: coincide = confirmada; foto dudosa distinta = manda la cédula; foto segura distinta (aunque sea una letra) = aviso con las dos, sin completar sola. Medido con 40 cédulas reales: 23 bien (58 %), 4 mal por una letra (3 «exactas»), 13 sin lectura (fotos de costado, movidas o muy chicas).
+- Ayuda al día (patente adelante/atrás, motos, documentos). Pruebas: 229.
+- `modelosLICENCIAS_MODELOS.txt`: el código de fast-plate-ocr es MIT; el proyecto no indica una licencia aparte para sus modelos (pendiente de confirmar antes de repartir la app a terceros).
+
 ## 1.2.0 (05/11/2026) — en preparación, sin compilar ni publicar
 
 Cumple las normas de las apps de Soter (`paleta-botones\GUIA_ESTILO_APPS.md` §12). Maquetas aprobadas en `informes-reglas-renombrar\maqueta-1.2.0\`.

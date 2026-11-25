@@ -9,13 +9,14 @@ import { aTensor, caracteristicas, interpretarDetecciones, prepararDetector, pre
 
 const raiz = fileURLToPath(new URL('..', import.meta.url));
 const modelos = join(raiz, 'modelos');
-const ARCHIVOS = ['yolos-tiny_cuantizado.onnx', 'dinov2-small_cuantizado.onnx', 'ort-wasm-simd-threaded.wasm', 'ejemplos.json'];
+const ARCHIVOS = ['yolos-tiny_cuantizado.onnx', 'dinov2-small_cuantizado.onnx', 'lector-patentes_cct-xs-v2.onnx', 'ort-wasm-simd-threaded.wasm', 'ejemplos.json'];
 const SHA: Record<string, string> = {
   'yolos-tiny_cuantizado.onnx': '82b5c1de8aaaffd763c67d67b09b742a1c53628acfee3077af3fa59233e86b6b',
   'dinov2-small_cuantizado.onnx': '3afdc8bc63b50558d6e5770f5b799bb82455c2311183a2de43803f343a29d917',
+  'lector-patentes_cct-xs-v2.onnx': '8031afb5fdc6b4d80462c9d542f1284ebd2cfddf5dbacd62609848d7e2855f44',
 };
 
-test('modelos: están los cuatro archivos y los dos modelos son exactamente los descargados (suma de control)', () => {
+test('modelos: están los cinco archivos y los tres modelos son exactamente los descargados (suma de control)', () => {
   for (const f of ARCHIVOS) assert.ok(existsSync(join(modelos, f)), `falta modelos/${f}`);
   for (const [f, sha] of Object.entries(SHA)) {
     assert.equal(createHash('sha256').update(readFileSync(join(modelos, f))).digest('hex'), sha, f);
@@ -23,6 +24,7 @@ test('modelos: están los cuatro archivos y los dos modelos son exactamente los 
   const licencias = readFileSync(join(modelos, 'LICENCIAS_MODELOS.txt'), 'utf8');
   for (const sha of Object.values(SHA)) assert.ok(licencias.includes(sha), 'LICENCIAS_MODELOS.txt tiene que listar la suma de control');
   assert.match(licencias, /Apache-2\.0/);
+  assert.match(licencias, /fast-plate-ocr/);
 });
 
 test('modelos: el motor copiado es el de la versión instalada de onnxruntime-web', () => {
@@ -32,7 +34,7 @@ test('modelos: el motor copiado es el de la versión instalada de onnxruntime-we
   assert.ok(readFileSync(join(modelos, 'ort-wasm-simd-threaded.wasm')).equals(readFileSync(original)), 'volver a copiar el .wasm desde node_modules/onnxruntime-web/dist');
 });
 
-test('modelos: el proceso principal entrega solo esos cuatro archivos y el instalador los lleva', () => {
+test('modelos: el proceso principal entrega solo esos cinco archivos y el instalador los lleva', () => {
   const main = readFileSync(join(raiz, 'main.cjs'), 'utf8');
   const lista = /MODEL_FILES = new Set\(\[(.*?)\]\)/.exec(main)?.[1] ?? '';
   assert.deepEqual([...lista.matchAll(/'([^']+)'/g)].map((m) => m[1]).sort(), [...ARCHIVOS].sort());

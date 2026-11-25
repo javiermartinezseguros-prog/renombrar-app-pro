@@ -181,6 +181,6 @@ test('ejemplos: el archivo que viaja con la app tiene ejemplos reales de las tom
   const por: Record<string, number> = {};
   for (const e of out) por[e.clave.toma] = (por[e.clave.toma] ?? 0) + 1;
   for (const t of ['FRENTE', 'TRASERA', 'CONDUCTOR', 'ACOMPANANTE', 'RUEDA', 'AUXILIO', 'TABLERO', 'PARABRISAS', 'GNC', 'OBLEA']) assert.ok((por[t] ?? 0) >= 5, `faltan ejemplos de ${t}`);
-  assert.ok(out.length <= 400, 'el archivo de ejemplos crece sin tope');
+  assert.ok(out.length <= 500, 'el archivo de ejemplos crece sin tope'); // 333 de tomas + 70 de documentos
   assert.ok(!/ASEGURADOS|\.jpe?g|[A-Z]{3}\d{3}/i.test(Object.keys(JSON.parse(txt)).join(' ') + JSON.stringify(JSON.parse(txt).ejemplos.map((e: any) => Object.keys(e)))), 'no debe haber rutas ni patentes');
 });

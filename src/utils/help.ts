@@ -66,7 +66,7 @@ export const HELP_STEPS_INSPECCIONES: HelpStep[] = [
   },
   {
     title: 'Confirmá la patente',
-    text: 'La app la lee de la foto, pero siempre se revisa: si no la leyó o está mal, escribila en el campo «Patente». Si pone «Moto», se piden cuadro y motor en lugar de rueda, tablero y GNC.',
+    text: 'La app la lee de la foto del frente, de la foto de atrás y del campo «Dominio» de la cédula verde, y las compara: si coinciden, queda casi segura; si no, te avisa con las dos. La cédula manda cuando la foto de la chapa salió dudosa. En las motos la lee solo de la foto de atrás, que es donde llevan la patente. Igual se revisa siempre: si no la leyó o está mal, escribila en el campo «Patente». Si pone «Moto», se piden cuadro y motor en lugar de rueda, tablero y GNC.',
   },
   {
     title: 'Renombrá y copiá',
@@ -96,7 +96,7 @@ export const HELP_CONTROLS: HelpControl[] = [
   { id: 'insp-agregar', name: 'Agregar fotos…', text: 'Igual que Archivo → Agregar fotos…' },
   { id: 'insp-estado', name: 'N fotos · N avisos', text: 'Cuántas fotos hay en pantalla y cuántos avisos tiene el vehículo (corta una parte, falta una toma, patente dudosa…).' },
   { id: 'insp-detener', name: 'Detener (lectura de fotos)', text: 'Corta la lectura de las fotos que faltan. Lo que ya se leyó queda en pantalla.' },
-  { id: 'insp-patente', name: 'Campo Patente', text: 'Patente del vehículo. La app la lee de la foto pero siempre se revisa: se puede escribir o corregir. Con la patente cambian los nombres de todas las fotos.' },
+  { id: 'insp-patente', name: 'Campo Patente', text: 'Patente del vehículo. La app la lee de las fotos de adelante y de atrás (en las motos, solo de atrás) y del dominio de la cédula verde, y las compara; siempre se revisa: se puede escribir o corregir. Con la patente cambian los nombres de todas las fotos.' },
   { id: 'insp-tipo', name: 'Tipo: Auto | Moto', text: 'Cambia las tomas que se piden. Auto: frente, trasera, conductor, acompañante, rueda, auxilio, tablero, parabrisas, GNC, oblea y cédula verde. Moto: frente, trasera, conductor, acompañante, número de cuadro, número de motor y cédula verde.' },
   { id: 'insp-fecha', name: 'Fecha', text: 'Fecha de las fotos. Primero se usan los metadatos (cuándo se sacó); si la foto no los tiene —WhatsApp los borra— se usa la fecha en que WhatsApp la envió, y lo dice con la etiqueta «WhatsApp». Si no hay ninguna, dice «sin fecha».' },
   { id: 'insp-nuevo-boton', name: 'Botón Nuevo vehículo', text: 'Igual que el menú Archivo → Nuevo vehículo.' },
@@ -234,7 +234,8 @@ export const HELP_TROUBLE: string[] = [
   'Si un PDF se leyó a medio copiar, subí la «Espera antes de leer un archivo nuevo» y volvé a agregarlo.',
   'El historial guarda los últimos días que indica Configuración; los PDF de Destino quedan para siempre.',
   'Inspecciones: si las fotos que leyó son de dos vehículos, usá «Nuevo vehículo» y sacá de la carpeta de Origen las del otro antes de volver a leer.',
-  'Inspecciones: si no leyó la patente (foto de lejos, torcida o sucia), escribila a mano en el campo Patente.',
+  'Inspecciones: si no leyó la patente (foto de lejos, torcida o sucia), escribila a mano en el campo Patente. Si la de adelante y la de atrás no coinciden, mirá las dos fotos: puede ser una lectura mala o fotos de dos vehículos. La cédula verde también se lee (el campo «Dominio»): si dice otra patente que las fotos, puede ser una cédula o fotos de otro vehículo. Una cédula sacada de costado o movida a veces no se llega a leer: en ese caso escribí la patente.',
+  'Inspecciones: una licencia de conducir, una cédula, un DNI o una tarjeta no son tomas del vehículo: la app los marca como «parece un documento» y no les pone toma. Si hace falta (por ejemplo la cédula verde), asignale la toma a mano.',
   'Inspecciones: si una foto quedó «sin toma», tocala con el botón derecho y elegí «Cambiar la toma…».',
   'Inspecciones: si dice «sin fecha», la foto no trae metadatos ni el nombre de WhatsApp; se puede renombrar igual.',
   'Inspecciones: la primera vez que se leen fotos tarda unos segundos más porque prepara el reconocimiento; las siguientes, unos 5 segundos por foto.',

@@ -7,15 +7,21 @@ import { CLASES_DOS_RUEDAS } from './encuadre';
 import { TipoVehiculo, TomaId } from './tomas';
 import { Parecido } from './vision';
 
+/** Ni una toma del vehículo: licencias de conducir, cédulas, DNI, tarjetas. Se reconoce para no confundirlas con una toma (antes caían en OBLEA). */
+export const DOCUMENTO = 'DOCUMENTO';
+
 export interface ClaveMuestra {
   tipo: TipoVehiculo;
-  toma: TomaId;
+  toma: TomaId | typeof DOCUMENTO;
 }
 
 export interface DecisionToma {
   /** Casi siempre una; AUXILIO y GNC vienen juntas cuando la foto vale por las dos (el baúl con el cilindro). */
   tomas: TomaId[];
-  tipo: TipoVehiculo;
+  /** Auto o moto; null si la foto es un documento (no dice nada del vehículo). */
+  tipo: TipoVehiculo | null;
+  /** La foto parece un documento y no una toma: no se le asigna ninguna. */
+  documento: boolean;
   puntaje: number;
   /** Ventaja del primero sobre el segundo (de otra toma). */
   margen: number;
@@ -33,13 +39,14 @@ export const PUNTAJE_DUDOSO = 0.25;
 export const PAR_MINIMO = 0.5;
 
 const PAR: TomaId[] = ['AUXILIO', 'GNC'];
+const esDelPar = (t: ClaveMuestra['toma']): boolean => (PAR as string[]).includes(t);
 
 export function decidirToma(ordenados: Parecido<ClaveMuestra>[], claseVehiculo: string | null): DecisionToma | null {
   // Si el detector vio un vehículo, la moto se compara solo con muestras de moto y el auto con las de auto.
   let candidatas = ordenados;
   if (claseVehiculo) {
     const tipo: TipoVehiculo = CLASES_DOS_RUEDAS.includes(claseVehiculo) ? 'moto' : 'auto';
-    const delTipo = ordenados.filter((o) => o.clave.tipo === tipo);
+    const delTipo = ordenados.filter((o) => o.clave.tipo === tipo || o.clave.toma === DOCUMENTO);
     if (delTipo.length > 0) candidatas = delTipo;
   }
   const mejor = candidatas[0];
@@ -47,16 +54,21 @@ export function decidirToma(ordenados: Parecido<ClaveMuestra>[], claseVehiculo: 
 
   const otras = candidatas.filter((o) => o.clave.toma !== mejor.clave.toma);
   const segunda = otras[0];
+  if (mejor.clave.toma === DOCUMENTO) {
+    const margenDoc = segunda ? mejor.puntaje - segunda.puntaje : mejor.puntaje;
+    return { tomas: [], tipo: null, documento: true, puntaje: mejor.puntaje, margen: margenDoc, dudosa: margenDoc < MARGEN_DUDOSO };
+  }
   let tomas: TomaId[] = [mejor.clave.toma];
   let rival = segunda;
-  if (PAR.includes(mejor.clave.toma) && segunda && PAR.includes(segunda.clave.toma) && segunda.puntaje >= PAR_MINIMO) {
+  if (esDelPar(mejor.clave.toma) && segunda && esDelPar(segunda.clave.toma) && segunda.puntaje >= PAR_MINIMO) {
     tomas = PAR.slice(); // las dos juntas, en el orden de siempre
-    rival = otras.find((o) => !PAR.includes(o.clave.toma));
+    rival = otras.find((o) => !esDelPar(o.clave.toma));
   }
   const margen = rival ? mejor.puntaje - rival.puntaje : mejor.puntaje;
   return {
     tomas,
     tipo: mejor.clave.tipo,
+    documento: false,
     puntaje: mejor.puntaje,
     margen,
     dudosa: margen < MARGEN_DUDOSO || mejor.puntaje < PUNTAJE_DUDOSO,

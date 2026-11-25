@@ -44,5 +44,13 @@
     "Nuevo: el avance de la lectura muestra el porcentaje, el tiempo que falta y un botón Detener; también se ve cuando el escaneo automático está leyendo y cuando se arma el ZIP.",
     "Menú del clic derecho: íconos propios en todas las opciones (también en «Copiar»), se desplaza si es más alto que la pantalla, y ahora también sale en un espacio vacío de la ventana.",
     "Corregido: al completar el número de póliza de una tarjeta ATM, el aviso podía salir dos veces y, en la app instalada, dejar una copia «(2)» en la carpeta de Destino."
+  ],
+  "1.3.0": [
+    "Inspecciones: las licencias de conducir, cédulas, DNI y tarjetas ya no se anotan como oblea de GNC. La app las reconoce como documentos, avisa «parece un documento» y no les pone toma (si hace falta, se la asignás a mano).",
+    "Inspecciones: lee bastante mejor las patentes. Ahora ubica la chapa dentro de la foto y la lee con un lector hecho solo para patentes (corre en tu PC, sin internet). Antes acertaba muy pocas; ahora acierta cerca de la mitad en fotos nuevas y tarda menos de medio segundo por foto.",
+    "Inspecciones: compara la patente de la foto de adelante con la de la foto de atrás. Si coinciden, la da por confirmada; si no, avisa con las dos para que revises (puede ser una lectura mala o fotos de dos vehículos).",
+    "Inspecciones: en las motos la patente se lee solo en la foto de atrás, que es donde la llevan.",
+    "Inspecciones: también lee el campo «Dominio» de la cédula verde y lo compara con la patente de las fotos. Si coincide, queda confirmada; si la chapa se leyó mal, manda la cédula; si dice otra patente, avisa. Una cédula movida o sacada de costado a veces no se alcanza a leer.",
+    "El instalador pesa unos 3 MB más por el lector de patentes."
   ]
 }
